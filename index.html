@@ -100,6 +100,28 @@
           </div>
         </div>
       </div>
+
+      <!-- NEW: Registered Farms listing (reads from smart contract) -->
+      <div class="card" id="farmsCard">
+        <h2 class="card-title">
+          <i class="fas fa-tractor" style="color:#10b981; margin-right:12px;"></i>
+          Registered Farms
+        </h2>
+
+        <div class="text-center mb-4">
+          <button id="refreshFarmsBtn" class="form-btn secondary" style="width:auto; padding:10px 16px;">
+            <i class="fas fa-sync"></i> Refresh
+          </button>
+        </div>
+
+        <!-- Grid populated by JS -->
+        <div id="farmsList" class="seals-grid"></div>
+
+        <!-- Empty state -->
+        <div id="farmsEmpty" class="text-center mb-4 hidden" style="color:#6b7280;">
+          No farms found.
+        </div>
+      </div>
     </div>
 
     <!-- Farmer Portal Tab -->

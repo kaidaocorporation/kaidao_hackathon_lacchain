@@ -6,13 +6,12 @@
     let web3;
     let contract;
     let currentAccount;
-    let provider; // keep the chosen injected provider reference
+    let provider; // hold selected EIP-1193 provider
   
-    // Shortcuts
+    // ---------- DOM helpers ----------
     const $  = (sel) => document.querySelector(sel);
     const $$ = (sel) => Array.from(document.querySelectorAll(sel));
   
-    // ---------- UI Helpers ----------
     function setConnectedUI(connected) {
       const btn = $('#connectBtn');
       if (!btn) return;
@@ -29,7 +28,6 @@
       const toast = $('#toast');
       const msg = $('#toastMessage');
       if (!toast || !msg) {
-        // Minimal fallback if toast DOM is missing
         console[type === 'error' ? 'error' : 'log'](message);
         return;
       }
@@ -52,12 +50,10 @@
     }
   
     // ---------- Provider selection ----------
-    // Prefer MetaMask when multiple providers are injected (e.g., TronLink also present)
+    // Prefer MetaMask if multiple providers are injected (EIP-1193 multi-provider)
     function getInjectedProvider() {
       const eth = window.ethereum;
       if (!eth) return null;
-  
-      // EIP-1193 multi-provider pattern
       if (Array.isArray(eth.providers) && eth.providers.length) {
         const metamask = eth.providers.find((p) => p && p.isMetaMask);
         return metamask || eth.providers[0];
@@ -65,7 +61,7 @@
       return eth;
     }
   
-    // ---------- Web3 ----------
+    // ---------- Web3 boot ----------
     async function initWeb3() {
       provider = getInjectedProvider();
       if (!provider) {
@@ -73,16 +69,14 @@
         return;
       }
   
-      // Bind Web3 to the selected provider (avoid accidental TronLink/TON usage)
       web3 = new Web3(provider);
   
       try {
-        // Request accounts from the chosen provider
         await provider.request({ method: 'eth_requestAccounts' });
         const accounts = await web3.eth.getAccounts();
         currentAccount = accounts[0];
   
-        // Resolve contract config (prefer window.EcoTraceDAO, then legacy globals)
+        // Resolve contract config (window.EcoTraceDAO has priority)
         const cfg = (typeof window !== 'undefined' && window.EcoTraceDAO) ? window.EcoTraceDAO : {};
         const ADDRESS =
           cfg.address ??
@@ -105,10 +99,8 @@
           return;
         }
   
-        // Create contract instance
         contract = new web3.eth.Contract(ABI, ADDRESS);
   
-        // Log chain for debugging wrong-network issues
         try {
           const chainId = await provider.request({ method: 'eth_chainId' });
           console.log('Connected chainId:', chainId, 'Contract:', ADDRESS);
@@ -117,13 +109,16 @@
         setConnectedUI(true);
         showToast('Wallet connected successfully!');
   
-        // Rewire listeners to the selected provider
+        // Reattach listeners to the chosen provider
         try {
           provider.removeListener?.('accountsChanged', onAccountsChanged);
           provider.removeListener?.('chainChanged', onChainChanged);
         } catch (_) {}
         provider.on('accountsChanged', onAccountsChanged);
         provider.on('chainChanged', onChainChanged);
+  
+        // Prime homepage farms list when connected
+        refreshFarmsList().catch((e) => console.warn('refreshFarmsList error:', e));
       } catch (error) {
         console.error('initWeb3 error:', error);
         showToast(`Failed to connect wallet: ${error?.message || 'Unknown error'}`, 'error');
@@ -135,6 +130,8 @@
       if (currentAccount) {
         setConnectedUI(true);
         showToast('Account changed');
+        // Optional: refresh farms using the same contract (farms are not account-scoped)
+        refreshFarmsList().catch(() => {});
       } else {
         setConnectedUI(false);
         showToast('Wallet disconnected', 'error');
@@ -142,7 +139,7 @@
     }
   
     function onChainChanged(_) {
-      // Full reload to keep provider/contract state in sync with chain
+      // Full reload keeps provider/contract state aligned with chain
       window.location.reload();
     }
   
@@ -154,34 +151,150 @@
       return true;
     }
   
-    // Scale decimal degrees to int (contract expects int256).
-    // Using Math.round handles negative coordinates correctly.
+    // ---------- Utils ----------
+    // Contract stores coords as int256 scaled by 1e6
+    function toDegrees(intScaled) {
+      const n = Number(intScaled);
+      if (!Number.isFinite(n)) return null;
+      return n / 1_000_000;
+    }
+  
     function scaleCoord(value) {
       const num = parseFloat(value);
       if (Number.isNaN(num)) return NaN;
       return Math.round(num * 1_000_000);
     }
   
-    // Load farmer's farms (for multiple farms support)
+    function shorten(addr) {
+      if (!addr || addr === '0x0000000000000000000000000000000000000000') return '—';
+      return addr.slice(0, 6) + '…' + addr.slice(-4);
+    }
+  
+    function fmtDate(ts) {
+      // Solidity timestamp in seconds
+      const ms = Number(ts) * 1000;
+      if (!Number.isFinite(ms)) return '—';
+      return new Date(ms).toLocaleDateString();
+    }
+  
+    // ---------- Homepage: list farms ----------
+    async function refreshFarmsList() {
+      const grid = $('#farmsList');
+      const empty = $('#farmsEmpty');
+      if (!grid) return; // page section not present
+  
+      grid.innerHTML = '';
+      empty.classList.add('hidden');
+  
+      if (!contract) {
+        empty.textContent = 'Connect your wallet to load farms.';
+        empty.classList.remove('hidden');
+        return;
+      }
+  
+      try {
+        const total = Number(await contract.methods.farmCounter().call());
+        if (!Number.isFinite(total) || total <= 0) {
+          empty.textContent = 'No farms found.';
+          empty.classList.remove('hidden');
+          return;
+        }
+  
+        // Fetch farms in parallel (1..total). Skip inactive or empty names.
+        const ids = Array.from({ length: total }, (_, i) => i + 1);
+        const chunks = 20; // limit concurrency batch size for providers
+        for (let i = 0; i < ids.length; i += chunks) {
+          const slice = ids.slice(i, i + chunks);
+          const farms = await Promise.all(
+            slice.map(async (id) => {
+              try {
+                const f = await contract.methods.getFarm(id).call();
+                return { id, ...f };
+              } catch {
+                return null;
+              }
+            })
+          );
+  
+          farms
+            .filter(Boolean)
+            .filter((f) => f.isActive && f.name && f.name.trim().length > 0)
+            .forEach((f) => grid.appendChild(renderFarmCard(f)));
+        }
+  
+        if (!grid.children.length) {
+          empty.textContent = 'No farms found.';
+          empty.classList.remove('hidden');
+        }
+      } catch (err) {
+        console.error('refreshFarmsList error:', err);
+        empty.textContent = 'Failed to load farms.';
+        empty.classList.remove('hidden');
+        showToast('Failed to load farms', 'error');
+      }
+    }
+  
+    function renderFarmCard(farm) {
+      const lat = toDegrees(farm.latitude);
+      const lon = toDegrees(farm.longitude);
+      const defo = farm.isDeforestationFree ? 'Yes' : 'No';
+  
+      const card = document.createElement('div');
+      // Reuse existing grid card styles for a clean look
+      card.className = 'seal-card'; // neutral border
+      card.style.borderColor = farm.isDeforestationFree ? '#10b981' : '#e5e7eb';
+  
+      card.innerHTML = `
+        <div class="seal-header">
+          <h3>Farm #${farm.id}: ${escapeHTML(farm.name)}</h3>
+          <div class="seal-icon ${farm.isDeforestationFree ? 'carbon' : 'deforestation'}">
+            <i class="${farm.isDeforestationFree ? 'fas fa-shield-alt' : 'fas fa-exclamation-triangle'}"></i>
+          </div>
+        </div>
+        <div class="seal-value ${farm.isDeforestationFree ? 'carbon' : 'deforestation'}" style="font-size:20px;">
+          ${farm.isDeforestationFree ? 'Deforestation-Free' : 'Standard'}
+        </div>
+        <div class="seal-label">Registered: ${fmtDate(farm.registrationDate)}</div>
+        <div class="seal-details">
+          Farmer: <strong>${shorten(farm.farmer)}</strong><br/>
+          Location: <strong>${lat?.toFixed(6) ?? '—'}, ${lon?.toFixed(6) ?? '—'}</strong><br/>
+          Active: <strong>${farm.isActive ? 'Yes' : 'No'}</strong>
+        </div>
+        <div class="seal-badge ${farm.isDeforestationFree ? '' : 'deforestation'}">
+          ${defo === 'Yes' ? '<i class="fas fa-check"></i> Verified' : 'No EUDR badge'}
+        </div>
+      `;
+      return card;
+    }
+  
+    // Minimal XSS-safe text injection helper
+    function escapeHTML(str) {
+      return String(str)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+  
+    // ---------- Farmer area helpers ----------
     async function loadFarmerFarms() {
       if (!ensureReady()) return;
   
       try {
         const farmIds = await contract.methods.getFarmerFarms(currentAccount).call();
         const farmSelect = $('#productFarmId');
-  
-        // Populate only if it's a <select>; if it's an <input>, skip rendering options
+        // Only populate if a <select> is present (current UI uses <input type="number">)
         if (farmSelect && farmSelect.tagName.toLowerCase() === 'select') {
           farmSelect.innerHTML = '<option value="">Select a farm...</option>';
           for (const farmId of farmIds) {
             const farm = await contract.methods.getFarm(farmId).call();
-            const option = document.createElement('option');
-            option.value = farmId;
-            option.textContent = `${farm.name} (ID: ${farmId})`;
-            farmSelect.appendChild(option);
+            const opt = document.createElement('option');
+            opt.value = farmId;
+            opt.textContent = `${farm.name} (ID: ${farmId})`;
+            farmSelect.appendChild(opt);
           }
         }
-  
         showToast(`Loaded ${farmIds.length} farms successfully!`);
       } catch (error) {
         console.error(error);
@@ -189,184 +302,172 @@
       }
     }
   
-    // ---------- Forms & Actions ----------
+    // ---------- Forms & actions ----------
     function wireForms() {
-      // Connect wallet button
-      const connectBtn = $('#connectBtn');
-      if (connectBtn) connectBtn.addEventListener('click', initWeb3);
+      // Connect wallet
+      $('#connectBtn')?.addEventListener('click', initWeb3);
   
-      // Load farms button (if exists)
-      const loadFarmsBtn = $('#loadFarmsBtn');
-      if (loadFarmsBtn) loadFarmsBtn.addEventListener('click', loadFarmerFarms);
+      // Homepage farms refresh
+      $('#refreshFarmsBtn')?.addEventListener('click', () => {
+        if (!contract) return showToast('Connect wallet first', 'error');
+        refreshFarmsList();
+      });
+  
+      // Load farms button (optional)
+      $('#loadFarmsBtn')?.addEventListener('click', loadFarmerFarms);
   
       // Register Farm
-      const farmForm = $('#farmForm');
-      if (farmForm) {
-        farmForm.addEventListener('submit', async (e) => {
-          e.preventDefault();
-          if (!ensureReady()) return;
+      $('#farmForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!ensureReady()) return;
   
-          const name = $('#farmName').value.trim();
-          const lat = scaleCoord($('#farmLat').value);
-          const lon = scaleCoord($('#farmLon').value);
-          const defoFree = $('#deforestationFree').checked;
+        const name = $('#farmName').value.trim();
+        const lat = scaleCoord($('#farmLat').value);
+        const lon = scaleCoord($('#farmLon').value);
+        const defoFree = $('#deforestationFree').checked;
   
-          if (!name) return showToast('Farm name is required', 'error');
-          if (Number.isNaN(lat) || Number.isNaN(lon)) {
-            return showToast('Latitude/Longitude must be valid numbers', 'error');
-          }
+        if (!name) return showToast('Farm name is required', 'error');
+        if (Number.isNaN(lat) || Number.isNaN(lon)) {
+          return showToast('Latitude/Longitude must be valid numbers', 'error');
+        }
   
-          try {
-            await contract.methods
-              .registerFarm(name, lat, lon, defoFree)
-              .send({ from: currentAccount });
-            showToast('Farm registered successfully!');
-            e.target.reset();
-  
-            // Reload farms after registration (if select exists)
-            setTimeout(() => loadFarmerFarms(), 1500);
-          } catch (error) {
-            console.error(error);
-            showToast(
-              `Failed to register farm: ${error?.data?.message || error?.message || 'Transaction failed'}`,
-              'error'
-            );
-          }
-        });
-      }
+        try {
+          await contract.methods.registerFarm(name, lat, lon, defoFree).send({ from: currentAccount });
+          showToast('Farm registered successfully!');
+          e.target.reset();
+          // Refresh homepage list after a short delay (indexing)
+          setTimeout(() => refreshFarmsList(), 1200);
+        } catch (error) {
+          console.error(error);
+          showToast(
+            `Failed to register farm: ${error?.data?.message || error?.message || 'Transaction failed'}`,
+            'error'
+          );
+        }
+      });
   
       // Register Product
-      const productForm = $('#productForm');
-      if (productForm) {
-        productForm.addEventListener('submit', async (e) => {
-          e.preventDefault();
-          if (!ensureReady()) return;
+      $('#productForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!ensureReady()) return;
   
-          const farmId = $('#productFarmId').value;
-          const name = $('#productName').value.trim();
-          const quantity = $('#productQuantity').value;
-          const batch = $('#productBatch').value.trim();
+        const farmId = $('#productFarmId').value;
+        const name = $('#productName').value.trim();
+        const quantity = $('#productQuantity').value;
+        const batch = $('#productBatch').value.trim();
   
-          if (!farmId) return showToast('Please select a farm first', 'error');
-          if (!name || !quantity || !batch) {
-            return showToast('All product fields are required', 'error');
-          }
+        if (!farmId) return showToast('Please select a farm first', 'error');
+        if (!name || !quantity || !batch) {
+          return showToast('All product fields are required', 'error');
+        }
   
-          try {
-            await contract.methods
-              .registerProduct(farmId, name, quantity, batch)
-              .send({ from: currentAccount });
-            showToast('Product registered successfully!');
-            e.target.reset();
-          } catch (error) {
-            console.error(error);
-            showToast(
-              `Failed to register product: ${error?.data?.message || error?.message || 'Transaction failed'}`,
-              'error'
-            );
-          }
-        });
-      }
+        try {
+          await contract.methods.registerProduct(farmId, name, quantity, batch).send({ from: currentAccount });
+          showToast('Product registered successfully!');
+          e.target.reset();
+        } catch (error) {
+          console.error(error);
+          showToast(
+            `Failed to register product: ${error?.data?.message || error?.message || 'Transaction failed'}`,
+            'error'
+          );
+        }
+      });
   
       // Issue Carbon Seal
-      const carbonForm = $('#carbonForm');
-      if (carbonForm) {
-        carbonForm.addEventListener('submit', async (e) => {
-          e.preventDefault();
-          if (!ensureReady()) return;
+      $('#carbonForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!ensureReady()) return;
   
-          const productId = $('#carbonProductId').value;
-          const consumerLat = scaleCoord($('#consumerLat').value);
-          const consumerLon = scaleCoord($('#consumerLon').value);
-          const tokenURI = 'https://ipfs.io/ipfs/QmExample';
+        const productId = $('#carbonProductId').value;
+        const consumerLat = scaleCoord($('#consumerLat').value);
+        const consumerLon = scaleCoord($('#consumerLon').value);
+        const tokenURI = 'https://ipfs.io/ipfs/QmExample';
   
-          if (!productId) return showToast('Product ID is required', 'error');
-          if (Number.isNaN(consumerLat) || Number.isNaN(consumerLon)) {
-            return showToast('Consumer coordinates must be valid numbers', 'error');
-          }
+        if (!productId) return showToast('Product ID is required', 'error');
+        if (Number.isNaN(consumerLat) || Number.isNaN(consumerLon)) {
+          return showToast('Consumer coordinates must be valid numbers', 'error');
+        }
   
-          try {
-            await contract.methods
-              .issueCarbonFootprintSeal(productId, consumerLat, consumerLon, tokenURI)
-              .send({ from: currentAccount });
-            showToast('Carbon footprint seal issued!');
-            e.target.reset();
-          } catch (error) {
-            console.error(error);
-            showToast(
-              `Failed to issue carbon seal: ${error?.data?.message || error?.message || 'Transaction failed'}`,
-              'error'
-            );
-          }
-        });
-      }
+        try {
+          await contract.methods
+            .issueCarbonFootprintSeal(productId, consumerLat, consumerLon, tokenURI)
+            .send({ from: currentAccount });
+          showToast('Carbon footprint seal issued!');
+          e.target.reset();
+        } catch (error) {
+          console.error(error);
+          showToast(
+            `Failed to issue carbon seal: ${error?.data?.message || error?.message || 'Transaction failed'}`,
+            'error'
+          );
+        }
+      });
   
       // Issue Deforestation-Free Seal
-      const defoForm = $('#deforestationForm');
-      if (defoForm) {
-        defoForm.addEventListener('submit', async (e) => {
-          e.preventDefault();
-          if (!ensureReady()) return;
+      $('#deforestationForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!ensureReady()) return;
   
-          const productId = $('#defoProductId').value;
-          const verificationData = $('#verificationData').value.trim();
-          const tokenURI = 'https://ipfs.io/ipfs/QmExample2';
+        const productId = $('#defoProductId').value;
+        const verificationData = $('#verificationData').value.trim();
+        const tokenURI = 'https://ipfs.io/ipfs/QmExample2';
   
-          if (!productId || !verificationData) {
-            return showToast('Product ID and verification data are required', 'error');
-          }
+        if (!productId || !verificationData) {
+          return showToast('Product ID and verification data are required', 'error');
+        }
   
-          try {
-            await contract.methods
-              .issueDeforestationFreeSeal(productId, verificationData, tokenURI)
-              .send({ from: currentAccount });
-            showToast('Deforestation-free seal issued!');
-            e.target.reset();
-          } catch (error) {
-            console.error(error);
-            showToast(
-              `Failed to issue deforestation seal: ${error?.data?.message || error?.message || 'Transaction failed'}`,
-              'error'
-            );
-          }
-        });
-      }
+        try {
+          await contract.methods
+            .issueDeforestationFreeSeal(productId, verificationData, tokenURI)
+            .send({ from: currentAccount });
+          showToast('Deforestation-free seal issued!');
+          e.target.reset();
+        } catch (error) {
+          console.error(error);
+          showToast(
+            `Failed to issue deforestation seal: ${error?.data?.message || error?.message || 'Transaction failed'}`,
+            'error'
+          );
+        }
+      });
   
       // Verify Product
-      const verifyBtn = $('#verifyBtn');
-      if (verifyBtn) {
-        verifyBtn.addEventListener('click', async () => {
-          const productId = $('#verifyProductId').value;
-          if (!productId) return showToast('Please enter a product ID', 'error');
-          if (!ensureReady()) return;
+      $('#verifyBtn')?.addEventListener('click', async () => {
+        const productId = $('#verifyProductId').value;
+        if (!productId) return showToast('Please enter a product ID', 'error');
+        if (!ensureReady()) return;
   
-          try {
-            const product = await contract.methods.getProduct(productId).call();
-            const farm = await contract.methods.getFarm(product.farmId).call();
+        try {
+          const product = await contract.methods.getProduct(productId).call();
+          const farm = await contract.methods.getFarm(product.farmId).call();
   
-            $('#verificationDetails').innerHTML = `
-              <p><strong>Product:</strong> ${product.productName}</p>
-              <p><strong>Farm:</strong> ${farm.name}</p>
-              <p><strong>Farmer:</strong> ${farm.farmer}</p>
-              <p><strong>Batch:</strong> ${product.batchId}</p>
-              <p><strong>Quantity:</strong> ${product.quantity} kg</p>
-              <p><strong>Deforestation-Free:</strong> ${farm.isDeforestationFree ? 'Yes' : 'No'}</p>
-            `;
-            $('#verificationResult').classList.remove('hidden');
-            showToast('Product verified successfully!');
-          } catch (error) {
-            console.error(error);
-            showToast('Product not found or error occurred', 'error');
-            $('#verificationResult').classList.add('hidden');
-          }
-        });
-      }
+          $('#verificationDetails').innerHTML = `
+            <p><strong>Product:</strong> ${product.productName}</p>
+            <p><strong>Farm:</strong> ${farm.name}</p>
+            <p><strong>Farmer:</strong> ${shorten(farm.farmer)}</p>
+            <p><strong>Batch:</strong> ${product.batchId}</p>
+            <p><strong>Quantity:</strong> ${product.quantity} kg</p>
+            <p><strong>Deforestation-Free:</strong> ${farm.isDeforestationFree ? 'Yes' : 'No'}</p>
+          `;
+        $('#verificationResult').classList.remove('hidden');
+          showToast('Product verified successfully!');
+        } catch (error) {
+          console.error(error);
+          showToast('Product not found or error occurred', 'error');
+          $('#verificationResult').classList.add('hidden');
+        }
+      });
     }
   
     // ---------- Boot ----------
     document.addEventListener('DOMContentLoaded', () => {
       wireTabs();
       wireForms();
+  
+      // If the provider is already available and user previously connected,
+      // you can optionally auto-enable reading-only actions here (no accounts).
+      // Farms list requires contract; the user must connect first to resolve provider/chain.
     });
   })();
   
