@@ -101,7 +101,7 @@
         </div>
       </div>
 
-      <!-- NEW: Registered Farms listing (reads from smart contract) -->
+      <!-- Registered Farms (populated from smart contract) -->
       <div class="card" id="farmsCard">
         <h2 class="card-title">
           <i class="fas fa-tractor" style="color:#10b981; margin-right:12px;"></i>
@@ -187,9 +187,11 @@
           <i class="fas fa-qrcode" style="color:#7c3aed;margin-right:12px;"></i>
           Verify Product Authenticity
         </h2>
+
+        <!-- A) Product verification by productId -->
         <div class="verify-container">
           <div class="form-group">
-            <label class="form-label">Enter Product ID or Scan QR</label>
+            <label class="form-label">Enter Product ID</label>
             <div class="verify-input">
               <input type="number" id="verifyProductId" class="form-input" placeholder="Product ID" style="flex:1;">
               <button id="verifyBtn" class="form-btn primary" style="width:auto;padding:12px 20px;">
@@ -202,6 +204,41 @@
             <div id="verificationDetails" class="verify-details"></div>
           </div>
         </div>
+
+        <hr style="margin:28px 0; border:none; height:1px; background:#e5e7eb;">
+
+        <!-- B) Seal NFT viewer by tokenId -->
+        <div class="verify-container">
+          <div class="form-group">
+            <label class="form-label">View Seal NFT (Token ID)</label>
+            <div class="verify-input">
+              <input type="number" id="sealTokenId" class="form-input" placeholder="NFT Token ID" style="flex:1;">
+              <button id="viewSealBtn" class="form-btn secondary" style="width:auto;padding:12px 20px;">
+                <i class="fas fa-image"></i>
+              </button>
+            </div>
+          </div>
+
+          <div id="sealBox" class="verify-result hidden">
+            <div class="verify-header">
+              <i class="fas fa-certificate"></i>
+              <span class="verify-title">Environmental Seal NFT</span>
+            </div>
+
+            <div class="info-grid" style="margin-top:12px;">
+              <div class="info-section">
+                <h3>Seal Details</h3>
+                <div id="sealMeta" class="verify-details"></div>
+              </div>
+              <div class="info-section" style="text-align:center;">
+                <h3>Preview</h3>
+                <img id="sealImage" alt="Seal NFT" style="max-width:260px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.08);"/>
+                <div id="sealNote" style="margin-top:8px;font-size:12px;color:#6b7280;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>

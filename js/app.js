@@ -6,7 +6,7 @@
     let web3;
     let contract;
     let currentAccount;
-    let provider; // hold selected EIP-1193 provider
+    let provider; // selected EIP-1193 provider
   
     // ---------- DOM helpers ----------
     const $  = (sel) => document.querySelector(sel);
@@ -117,7 +117,7 @@
         provider.on('accountsChanged', onAccountsChanged);
         provider.on('chainChanged', onChainChanged);
   
-        // Prime homepage farms list when connected
+        // Prime homepage farms list + (optional) keep previous tokenId view
         refreshFarmsList().catch((e) => console.warn('refreshFarmsList error:', e));
       } catch (error) {
         console.error('initWeb3 error:', error);
@@ -130,7 +130,6 @@
       if (currentAccount) {
         setConnectedUI(true);
         showToast('Account changed');
-        // Optional: refresh farms using the same contract (farms are not account-scoped)
         refreshFarmsList().catch(() => {});
       } else {
         setConnectedUI(false);
@@ -143,9 +142,19 @@
       window.location.reload();
     }
   
+    // Forms require both contract and an account (for sending tx)
     function ensureReady() {
       if (!contract || !currentAccount) {
         showToast('Please connect your wallet first', 'error');
+        return false;
+      }
+      return true;
+    }
+  
+    // Read-only operations only need contract
+    function ensureContract() {
+      if (!contract) {
+        showToast('Connect wallet to load on-chain data', 'error');
         return false;
       }
       return true;
@@ -171,17 +180,35 @@
     }
   
     function fmtDate(ts) {
-      // Solidity timestamp in seconds
       const ms = Number(ts) * 1000;
       if (!Number.isFinite(ms)) return '—';
       return new Date(ms).toLocaleDateString();
+    }
+  
+    // Basic XSS-safe text injection
+    function escapeHTML(str) {
+      return String(str)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+  
+    // IPFS helpers
+    function ipfsToHttp(uri) {
+      if (!uri) return null;
+      if (uri.startsWith('ipfs://')) {
+        return 'https://ipfs.io/ipfs/' + uri.replace('ipfs://', '');
+      }
+      return uri;
     }
   
     // ---------- Homepage: list farms ----------
     async function refreshFarmsList() {
       const grid = $('#farmsList');
       const empty = $('#farmsEmpty');
-      if (!grid) return; // page section not present
+      if (!grid) return;
   
       grid.innerHTML = '';
       empty.classList.add('hidden');
@@ -200,11 +227,10 @@
           return;
         }
   
-        // Fetch farms in parallel (1..total). Skip inactive or empty names.
         const ids = Array.from({ length: total }, (_, i) => i + 1);
-        const chunks = 20; // limit concurrency batch size for providers
-        for (let i = 0; i < ids.length; i += chunks) {
-          const slice = ids.slice(i, i + chunks);
+        const batch = 20; // throttle concurrency
+        for (let i = 0; i < ids.length; i += batch) {
+          const slice = ids.slice(i, i + batch);
           const farms = await Promise.all(
             slice.map(async (id) => {
               try {
@@ -237,11 +263,9 @@
     function renderFarmCard(farm) {
       const lat = toDegrees(farm.latitude);
       const lon = toDegrees(farm.longitude);
-      const defo = farm.isDeforestationFree ? 'Yes' : 'No';
   
       const card = document.createElement('div');
-      // Reuse existing grid card styles for a clean look
-      card.className = 'seal-card'; // neutral border
+      card.className = 'seal-card';
       card.style.borderColor = farm.isDeforestationFree ? '#10b981' : '#e5e7eb';
   
       card.innerHTML = `
@@ -261,20 +285,10 @@
           Active: <strong>${farm.isActive ? 'Yes' : 'No'}</strong>
         </div>
         <div class="seal-badge ${farm.isDeforestationFree ? '' : 'deforestation'}">
-          ${defo === 'Yes' ? '<i class="fas fa-check"></i> Verified' : 'No EUDR badge'}
+          ${farm.isDeforestationFree ? '<i class="fas fa-check"></i> Verified' : 'No EUDR badge'}
         </div>
       `;
       return card;
-    }
-  
-    // Minimal XSS-safe text injection helper
-    function escapeHTML(str) {
-      return String(str)
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
     }
   
     // ---------- Farmer area helpers ----------
@@ -284,7 +298,6 @@
       try {
         const farmIds = await contract.methods.getFarmerFarms(currentAccount).call();
         const farmSelect = $('#productFarmId');
-        // Only populate if a <select> is present (current UI uses <input type="number">)
         if (farmSelect && farmSelect.tagName.toLowerCase() === 'select') {
           farmSelect.innerHTML = '<option value="">Select a farm...</option>';
           for (const farmId of farmIds) {
@@ -299,6 +312,105 @@
       } catch (error) {
         console.error(error);
         showToast('Failed to load farms', 'error');
+      }
+    }
+  
+    // ---------- Seal NFT viewer ----------
+    async function viewSealNFT() {
+      if (!ensureContract()) return;
+  
+      const tokenId = $('#sealTokenId')?.value;
+      if (!tokenId) {
+        showToast('Enter a token ID', 'error');
+        return;
+      }
+  
+      const box   = $('#sealBox');
+      const meta  = $('#sealMeta');
+      const img   = $('#sealImage');
+      const note  = $('#sealNote');
+  
+      try {
+        // Read on-chain seal struct
+        const seal = await contract.methods.getSeal(tokenId).call();
+  
+        // Try to resolve tokenURI (if implemented)
+        let uri = null;
+        try {
+          uri = await contract.methods.tokenURI(tokenId).call();
+        } catch (_) {
+          // tokenURI may not exist for some contracts; ignore
+        }
+  
+        // Compose metadata text
+        meta.innerHTML = `
+          <p><strong>Token ID:</strong> ${tokenId}</p>
+          <p><strong>Product ID:</strong> ${seal.productId}</p>
+          <p><strong>Type:</strong> ${Number(seal.sealType) === 0 ? 'Carbon Footprint' : 'Deforestation-Free'}</p>
+          <p><strong>Carbon Footprint:</strong> ${seal.carbonFootprint} (raw units)</p>
+          <p><strong>Valid:</strong> ${seal.isValid ? 'Yes' : 'No'}</p>
+          <p><strong>Issued:</strong> ${fmtDate(seal.issuanceDate)}</p>
+          <p><strong>Verification:</strong> ${escapeHTML(seal.verificationData || '—')}</p>
+        `;
+  
+        // Attempt to display image:
+        // - If tokenURI points to a JSON metadata, fetch and read image field.
+        // - If tokenURI already points to an image (e.g., ipfs PNG), show directly.
+        let displaySrc = null;
+        let displayMsg = '';
+  
+        if (uri) {
+          const httpURI = ipfsToHttp(uri);
+          try {
+            const res = await fetch(httpURI, { mode: 'cors' });
+            const contentType = res.headers.get('content-type') || '';
+  
+            if (contentType.includes('application/json')) {
+              const json = await res.json();
+              const imgField = json.image || json.image_url || json.imageURI;
+              if (imgField) {
+                displaySrc = ipfsToHttp(imgField);
+                displayMsg = 'Loaded from metadata image field.';
+              } else {
+                displaySrc = null;
+                displayMsg = 'No image field in metadata.';
+              }
+            } else if (contentType.startsWith('image/')) {
+              // Direct image hosted at tokenURI
+              displaySrc = httpURI;
+              displayMsg = 'tokenURI is a direct image.';
+            } else {
+              // Unknown, still try to show if it’s a common image extension
+              if (/\.(png|jpg|jpeg|gif|webp|svg)(\?.*)?$/i.test(httpURI)) {
+                displaySrc = httpURI;
+                displayMsg = 'tokenURI appears to be an image link.';
+              } else {
+                displayMsg = 'tokenURI does not point to an image.';
+              }
+            }
+          } catch (e) {
+            console.warn('Fetching tokenURI failed:', e);
+            displayMsg = 'Could not fetch tokenURI (CORS or gateway issue).';
+          }
+        } else {
+          displayMsg = 'tokenURI() not available on contract.';
+        }
+  
+        if (displaySrc) {
+          img.src = displaySrc;
+          img.classList.remove('hidden');
+        } else {
+          img.removeAttribute('src');
+          img.classList.add('hidden');
+        }
+  
+        note.textContent = displayMsg + (uri ? ` (${uri})` : '');
+        box.classList.remove('hidden');
+        showToast('Seal loaded.');
+      } catch (err) {
+        console.error('viewSealNFT error:', err);
+        showToast('Failed to load seal', 'error');
+        $('#sealBox')?.classList.add('hidden');
       }
     }
   
@@ -335,7 +447,6 @@
           await contract.methods.registerFarm(name, lat, lon, defoFree).send({ from: currentAccount });
           showToast('Farm registered successfully!');
           e.target.reset();
-          // Refresh homepage list after a short delay (indexing)
           setTimeout(() => refreshFarmsList(), 1200);
         } catch (error) {
           console.error(error);
@@ -432,25 +543,25 @@
         }
       });
   
-      // Verify Product
+      // Verify Product (by productId)
       $('#verifyBtn')?.addEventListener('click', async () => {
         const productId = $('#verifyProductId').value;
         if (!productId) return showToast('Please enter a product ID', 'error');
-        if (!ensureReady()) return;
+        if (!ensureContract()) return;
   
         try {
           const product = await contract.methods.getProduct(productId).call();
           const farm = await contract.methods.getFarm(product.farmId).call();
   
           $('#verificationDetails').innerHTML = `
-            <p><strong>Product:</strong> ${product.productName}</p>
-            <p><strong>Farm:</strong> ${farm.name}</p>
+            <p><strong>Product:</strong> ${escapeHTML(product.productName)}</p>
+            <p><strong>Farm:</strong> ${escapeHTML(farm.name)}</p>
             <p><strong>Farmer:</strong> ${shorten(farm.farmer)}</p>
-            <p><strong>Batch:</strong> ${product.batchId}</p>
+            <p><strong>Batch:</strong> ${escapeHTML(product.batchId)}</p>
             <p><strong>Quantity:</strong> ${product.quantity} kg</p>
             <p><strong>Deforestation-Free:</strong> ${farm.isDeforestationFree ? 'Yes' : 'No'}</p>
           `;
-        $('#verificationResult').classList.remove('hidden');
+          $('#verificationResult').classList.remove('hidden');
           showToast('Product verified successfully!');
         } catch (error) {
           console.error(error);
@@ -458,16 +569,16 @@
           $('#verificationResult').classList.add('hidden');
         }
       });
+  
+      // View Seal NFT (by tokenId)
+      $('#viewSealBtn')?.addEventListener('click', viewSealNFT);
     }
   
     // ---------- Boot ----------
     document.addEventListener('DOMContentLoaded', () => {
       wireTabs();
       wireForms();
-  
-      // If the provider is already available and user previously connected,
-      // you can optionally auto-enable reading-only actions here (no accounts).
-      // Farms list requires contract; the user must connect first to resolve provider/chain.
+      // Note: farms list is populated after wallet connection (to ensure proper provider/chain).
     });
   })();
   
