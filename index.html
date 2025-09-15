@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>EcoTraceDAO - Agricultural Traceability</title>
+  <title>EcoTraceDAO — Agricultural Traceability</title>
 
   <!-- External libs -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/web3/1.8.0/web3.min.js"></script>
@@ -38,8 +38,54 @@
       <button class="tab-btn" data-tab="consumer"><i class="fas fa-search"></i> Verify Product</button>
     </div>
 
-    <!-- Product Trace Tab -->
+    <!-- ==================== Product Trace Tab ==================== -->
     <div id="trace-tab" class="tab-content">
+
+      <!-- About EcoTraceDAO (enhanced) -->
+<div class="card about-card" id="aboutEcoTrace">
+    <div class="about-header">
+      <div class="about-icon"><i class="fas fa-circle-info"></i></div>
+      <div class="about-title-wrap">
+        <h2 class="card-title" style="margin:0;">About EcoTraceDAO</h2>
+        <p class="about-sub">Environmental Asset Registry for Agricultural Products</p>
+      </div>
+      <div class="about-tags">
+        <span class="tag">EVM</span>
+        <span class="tag">Open Source</span>
+        <span class="tag">MIT License</span>
+      </div>
+    </div>
+  
+    <div class="about-grid">
+      <div class="about-col">
+        <p><strong>EcoTraceDAO</strong> is an on-chain environmental asset registry for agricultural products. It aggregates verifiable field evidence, tokenizes it (e.g., NFTs / on-chain records), and makes it publicly visible so end users can understand environmental attributes and optionally compensate the carbon footprint of a product.</p>
+  
+        <p class="about-ic-head"><i class="fas fa-diagram-project"></i> Interconnections</p>
+        <p>Integrated with <em>GabbiiDAO</em> (environmental-impact DAO enabling compensation workflows) and <em>Mayordomo</em> (an assistant that helps farmers commercialize products and add value through environmental & social responsibility signals generated via EcoTraceDAO).</p>
+      </div>
+  
+      <div class="about-col">
+        <ul class="feature-list">
+          <li><i class="fas fa-check-circle"></i> Register farms/products and attach environmental evidence to them.</li>
+          <li><i class="fas fa-check-circle"></i> Tokenize evidence and seals for portable, auditable on-chain records.</li>
+          <li><i class="fas fa-check-circle"></i> Expose environmental attributes to the public (traceability, seals, proofs).</li>
+          <li><i class="fas fa-check-circle"></i> Enable farmers to discover & sell environmental assets via participatory verification.</li>
+        </ul>
+      </div>
+    </div>
+  
+    <div class="about-footer">
+      <div class="about-meta">
+        <strong>Governance / Origin:</strong> EcoTraceDAO is a product of Corporación KaidáO -	NIT 9019577984.
+      </div>
+      <a class="btn-github" href="https://github.com/kaidaocorporation/kaidao_hackathon_lacchain?tab=readme-ov-file" target="_blank" rel="noopener">
+        <i class="fab fa-github"></i> Repository
+      </a>
+    </div>
+  </div>
+  
+
+      <!-- Journey -->
       <div class="card">
         <h2 class="card-title">
           <i class="fas fa-seedling" style="color:#10b981;margin-right:12px;"></i>
@@ -85,14 +131,21 @@
 
         <div class="seals-grid">
           <div class="seal-card carbon">
-            <div class="seal-header"><h3>Carbon Footprint Seal</h3><div class="seal-icon carbon"><i class="fas fa-leaf"></i></div></div>
+            <div class="seal-header">
+              <h3>Carbon Footprint Seal</h3>
+              <div class="seal-icon carbon"><i class="fas fa-leaf"></i></div>
+            </div>
             <div class="seal-value carbon">250 kg CO₂</div>
             <div class="seal-label">per kg of product</div>
             <div class="seal-details">Distance: Bogotá → Miami (2,500 km)</div>
             <div class="seal-badge"><i class="fas fa-check"></i> Verified</div>
           </div>
+
           <div class="seal-card deforestation">
-            <div class="seal-header"><h3>Deforestation-Free Seal</h3><div class="seal-icon deforestation"><i class="fas fa-tree"></i></div></div>
+            <div class="seal-header">
+              <h3>Deforestation-Free Seal</h3>
+              <div class="seal-icon deforestation"><i class="fas fa-tree"></i></div>
+            </div>
             <div class="seal-value deforestation">EU Compliant</div>
             <div class="seal-label">EUDR Regulation</div>
             <div class="seal-details">Cert: EU-EUDR-CERT-2025-001</div>
@@ -101,12 +154,16 @@
         </div>
       </div>
 
-      <!-- Registered Farms (populated from smart contract) -->
+      <!-- Registered Farms (dynamic, from smart contract) -->
       <div class="card" id="farmsCard">
         <h2 class="card-title">
           <i class="fas fa-tractor" style="color:#10b981; margin-right:12px;"></i>
           Registered Farms
         </h2>
+
+        <p class="text-center" style="color:#6b7280;margin:8px 0 20px;">
+          Live data fetched from the EcoTraceDAO smart contract.
+        </p>
 
         <div class="text-center mb-4">
           <button id="refreshFarmsBtn" class="form-btn secondary" style="width:auto; padding:10px 16px;">
@@ -124,55 +181,108 @@
       </div>
     </div>
 
-    <!-- Farmer Portal Tab -->
+    <!-- ==================== Farmer Portal Tab ==================== -->
     <div id="farmer-tab" class="tab-content hidden">
       <div class="form-grid">
+        <!-- Register Farm -->
         <div class="form-card">
-          <h3 class="form-title"><i class="fas fa-plus-circle" style="color:#10b981;margin-right:8px;"></i> Register New Farm</h3>
+          <h3 class="form-title">
+            <i class="fas fa-plus-circle" style="color:#10b981;margin-right:8px;"></i>
+            Register New Farm
+          </h3>
           <form id="farmForm">
-            <div class="form-group"><label class="form-label">Farm Name</label><input type="text" id="farmName" class="form-input" placeholder="e.g., Finca Verde"></div>
-            <div class="grid-2">
-              <div class="form-group"><label class="form-label">Latitude</label><input type="number" step="any" id="farmLat" class="form-input" placeholder="4.596"></div>
-              <div class="form-group"><label class="form-label">Longitude</label><input type="number" step="any" id="farmLon" class="form-input" placeholder="-74.081"></div>
+            <div class="form-group">
+              <label class="form-label">Farm Name</label>
+              <input type="text" id="farmName" class="form-input" placeholder="e.g., Finca Verde">
             </div>
-            <div class="form-checkbox"><input type="checkbox" id="deforestationFree"><label>Deforestation-Free Certified</label></div>
-            <button type="submit" class="form-btn primary"><i class="fas fa-tractor"></i> Register Farm</button>
+            <div class="grid-2">
+              <div class="form-group">
+                <label class="form-label">Latitude</label>
+                <input type="number" step="any" id="farmLat" class="form-input" placeholder="4.596">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Longitude</label>
+                <input type="number" step="any" id="farmLon" class="form-input" placeholder="-74.081">
+              </div>
+            </div>
+            <div class="form-checkbox">
+              <input type="checkbox" id="deforestationFree">
+              <label for="deforestationFree">Deforestation-Free Certified</label>
+            </div>
+            <button type="submit" class="form-btn primary">
+              <i class="fas fa-tractor"></i> Register Farm
+            </button>
           </form>
         </div>
 
+        <!-- Register Product -->
         <div class="form-card">
-          <h3 class="form-title"><i class="fas fa-seedling" style="color:#3b82f6;margin-right:8px;"></i> Register New Product</h3>
+          <h3 class="form-title">
+            <i class="fas fa-seedling" style="color:#3b82f6;margin-right:8px;"></i>
+            Register New Product
+          </h3>
           <form id="productForm">
-            <div class="form-group"><label class="form-label">Farm ID</label><input type="number" id="productFarmId" class="form-input" placeholder="1"></div>
-            <div class="form-group"><label class="form-label">Product Name</label><input type="text" id="productName" class="form-input" placeholder="e.g., Café Arábica"></div>
-            <div class="grid-2">
-              <div class="form-group"><label class="form-label">Quantity (kg)</label><input type="number" id="productQuantity" class="form-input" placeholder="1000"></div>
-              <div class="form-group"><label class="form-label">Batch ID</label><input type="text" id="productBatch" class="form-input" placeholder="LOTE001-2025"></div>
+            <div class="form-group">
+              <label class="form-label">Farm ID</label>
+              <input type="number" id="productFarmId" class="form-input" placeholder="1">
             </div>
-            <button type="submit" class="form-btn secondary"><i class="fas fa-plus"></i> Register Product</button>
+            <div class="form-group">
+              <label class="form-label">Product Name</label>
+              <input type="text" id="productName" class="form-input" placeholder="e.g., Café Arábica">
+            </div>
+            <div class="grid-2">
+              <div class="form-group">
+                <label class="form-label">Quantity (kg)</label>
+                <input type="number" id="productQuantity" class="form-input" placeholder="1000">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Batch ID</label>
+                <input type="text" id="productBatch" class="form-input" placeholder="LOTE001-2025">
+              </div>
+            </div>
+            <button type="submit" class="form-btn secondary">
+              <i class="fas fa-plus"></i> Register Product
+            </button>
           </form>
         </div>
       </div>
 
+      <!-- Issue Seals -->
       <div class="card mt-4">
-        <h3 class="form-title text-center"><i class="fas fa-certificate" style="color:#7c3aed;margin-right:8px;"></i> Issue Environmental Seals</h3>
+        <h3 class="form-title text-center">
+          <i class="fas fa-certificate" style="color:#7c3aed;margin-right:8px;"></i>
+          Issue Environmental Seals
+        </h3>
         <div class="form-grid">
+          <!-- Carbon Seal -->
           <div class="form-card">
             <h4 style="font-weight:600;margin-bottom:15px;">Carbon Footprint Seal</h4>
             <form id="carbonForm">
-              <div class="form-group"><input type="number" id="carbonProductId" class="form-input" placeholder="Product ID"></div>
+              <div class="form-group">
+                <input type="number" id="carbonProductId" class="form-input" placeholder="Product ID">
+              </div>
               <div class="grid-2">
-                <div class="form-group"><input type="number" step="any" id="consumerLat" class="form-input" placeholder="Consumer Lat"></div>
-                <div class="form-group"><input type="number" step="any" id="consumerLon" class="form-input" placeholder="Consumer Lon"></div>
+                <div class="form-group">
+                  <input type="number" step="any" id="consumerLat" class="form-input" placeholder="Consumer Lat">
+                </div>
+                <div class="form-group">
+                  <input type="number" step="any" id="consumerLon" class="form-input" placeholder="Consumer Lon">
+                </div>
               </div>
               <button type="submit" class="form-btn primary">Issue Carbon Seal</button>
             </form>
           </div>
+
+          <!-- Deforestation-Free -->
           <div class="form-card">
             <h4 style="font-weight:600;margin-bottom:15px;">Deforestation-Free Seal</h4>
             <form id="deforestationForm">
-              <div class="form-group"><input type="number" id="defoProductId" class="form-input" placeholder="Product ID"></div>
-              <div class="form-group"><input type="text" id="verificationData" class="form-input" placeholder="Verification Data"></div>
+              <div class="form-group">
+                <input type="number" id="defoProductId" class="form-input" placeholder="Product ID">
+              </div>
+              <div class="form-group">
+                <input type="text" id="verificationData" class="form-input" placeholder="Verification Data">
+              </div>
               <button type="submit" class="form-btn secondary">Issue Deforestation Seal</button>
             </form>
           </div>
@@ -180,7 +290,7 @@
       </div>
     </div>
 
-    <!-- Consumer Portal Tab -->
+    <!-- ==================== Consumer Portal Tab ==================== -->
     <div id="consumer-tab" class="tab-content hidden">
       <div class="card">
         <h2 class="card-title">
@@ -200,7 +310,10 @@
             </div>
           </div>
           <div id="verificationResult" class="verify-result hidden">
-            <div class="verify-header"><i class="fas fa-check-circle"></i><span class="verify-title">Product Verified</span></div>
+            <div class="verify-header">
+              <i class="fas fa-check-circle"></i>
+              <span class="verify-title">Product Verified</span>
+            </div>
             <div id="verificationDetails" class="verify-details"></div>
           </div>
         </div>
@@ -232,7 +345,7 @@
               </div>
               <div class="info-section" style="text-align:center;">
                 <h3>Preview</h3>
-                <img id="sealImage" alt="Seal NFT" style="max-width:260px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.08);"/>
+                <img id="sealImage" alt="Seal NFT" style="max-width:260px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.08);" />
                 <div id="sealNote" style="margin-top:8px;font-size:12px;color:#6b7280;"></div>
               </div>
             </div>
