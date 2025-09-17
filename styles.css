@@ -568,6 +568,14 @@ select.form-input option {
   color: #1f2937; 
 }
 
+.verify-details .facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+}
+.verify-details .facts .label { color: #6b7280; }
+#tokenImage { width: 100%; height: auto; object-fit: cover; display: block; }
+
 /* Modal for Map Selection */
 .modal {
   display: none;

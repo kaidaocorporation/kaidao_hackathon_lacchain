@@ -121,6 +121,81 @@
     return 2 * R * Math.asin(Math.sqrt(s1));
   }
 
+  // ---- Flexible metadata + seal readers ----
+  function readAttr(meta, keys) {
+    if (!meta) return null;
+    for (const k of keys) {
+      if (meta[k] != null && meta[k] !== '') return meta[k];
+    }
+    const attrs = Array.isArray(meta.attributes) ? meta.attributes : [];
+    for (const k of keys) {
+      const hit = attrs.find(a =>
+        String(a.trait_type || a.trait || a.type || '').toLowerCase() === String(k).toLowerCase()
+      );
+      if (hit && hit.value != null && hit.value !== '') return hit.value;
+    }
+    return null;
+  }
+  function prettyBool(v) {
+    if (typeof v === 'boolean') return v ? 'Yes' : 'No';
+    if (v == null || v === '') return '—';
+    const s = String(v).toLowerCase();
+    if (['true','yes','y','1','valid','verified'].includes(s)) return 'Yes';
+    if (['false','no','n','0','invalid','unverified'].includes(s)) return 'No';
+    return String(v);
+  }
+  async function tryCall(method, args) {
+    if (!contract?.methods?.[method]) return null;
+    try { return await contract.methods[method](...(args || [])).call(); }
+    catch { return null; }
+  }
+  function normalizeSeal(obj) {
+    if (!obj) return null;
+    const keys = Object.keys(obj).filter(k => isNaN(k));
+    const lc = {};
+    keys.forEach(k => { lc[k.toLowerCase()] = obj[k]; });
+    const pick = (...names) => {
+      for (const n of names) {
+        if (lc[n] != null && String(lc[n]) !== '') return lc[n];
+      }
+      return null;
+    };
+    const productId   = pick('productid','product_id','product','pid');
+    const footprint   = pick('carbonfootprint','footprint','value','footprintvalue');
+    const valid       = pick('isvalid','valid','status');
+    let   issued      = pick('issuedat','issued','timestamp','date','time');
+    const verification= pick('verification','verificationdata','verifier','certificate','cert');
+    const type        = pick('type','sealtype','category','kind') || 'Seal NFT';
+
+    // common timestamp normalization
+    if (issued != null) {
+      const num = Number(issued);
+      if (Number.isFinite(num) && num > 100000) issued = fmtDate(num);
+    }
+
+    return { productId, footprint, valid, issued, verification, type };
+  }
+  async function readSealOnChainByTokenId(tokenId) {
+    const candidates = [
+      ['getCarbonSealByTokenId', [tokenId]],
+      ['getSealByTokenId',       [tokenId]],
+      ['carbonSeals',            [tokenId]],
+      ['seals',                  [tokenId]],
+      ['tokenIdToSeal',          [tokenId]],
+      ['tokenInfo',              [tokenId]],
+      ['getNFT',                 [tokenId]],
+      ['getCarbonFootprintSeal', [tokenId]],
+    ];
+    for (const [m, a] of candidates) {
+      const res = await tryCall(m, a);
+      const norm = normalizeSeal(res);
+      if (norm && (norm.productId != null || norm.footprint != null || norm.valid != null || norm.issued != null || norm.verification != null)) {
+        return norm;
+      }
+    }
+    return null;
+  }
+
   // ---- Web3 / Network ----
   function getInjectedProvider() {
     const eth = window.ethereum;
@@ -143,7 +218,6 @@
         params: [{ chainId: desired }],
       });
     } catch (err) {
-      // 4902 => chain not added
       if (err && err.code === 4902) {
         await provider.request({
           method: 'wallet_addEthereumChain',
@@ -171,15 +245,11 @@
     web3 = new Web3(provider);
 
     try {
-      // 1) Force Sepolia before requesting accounts
       await ensureSepoliaNetwork(provider);
-
-      // 2) Request accounts
       await provider.request({ method: 'eth_requestAccounts' });
       const accounts = await web3.eth.getAccounts();
       currentAccount = accounts[0];
 
-      // 3) Load contract config (expects contracts.js to set window.EcoTraceDAO)
       const cfg = (typeof window !== 'undefined' && window.EcoTraceDAO) ? window.EcoTraceDAO : {};
       const ADDRESS = cfg.address ?? window.CONTRACT_ADDRESS;
       const ABI = cfg.abi ?? window.CONTRACT_ABI;
@@ -189,17 +259,14 @@
         return;
       }
 
-      // 4) Instantiate contract
       contract = new web3.eth.Contract(ABI, ADDRESS);
 
-      // 5) UI + listeners
       setConnectedUI(true);
       showToast('Wallet connected successfully!');
 
       provider.on('accountsChanged', onAccountsChanged);
       provider.on('chainChanged', onChainChanged);
 
-      // 6) Initial data load
       refreshFarmsList().catch((e) => console.warn('refreshFarmsList error:', e));
     } catch (error) {
       console.error('initWeb3 error:', error);
@@ -213,7 +280,6 @@
       setConnectedUI(true);
       showToast('Account changed');
       refreshFarmsList().catch(() => {});
-      // refresh any carbon map that depends on reads
       updateCarbonMapFromInputs().catch(() => {});
     } else {
       setConnectedUI(false);
@@ -322,7 +388,6 @@
       $('#modalLat').value = lat;
       $('#modalLon').value = lon;
 
-      // Auto-fill target form immediately
       if (mapPickTarget === 'farm') {
         $('#farmLat').value = lat;
         $('#farmLon').value = lon;
@@ -394,7 +459,6 @@
   }
 
   async function updateCarbonMapFromInputs() {
-    // Need productId and consumer lat/lon
     const productId = $('#carbonProductId')?.value?.trim();
     const cLat = parseFloat($('#consumerLat')?.value);
     const cLon = parseFloat($('#consumerLon')?.value);
@@ -405,7 +469,6 @@
       const map = ensureCarbonMap();
       if (!map) return;
 
-      // Clear existing markers/line
       if (carbonFarmMarker) map.removeLayer(carbonFarmMarker);
       if (carbonConsumerMarker) map.removeLayer(carbonConsumerMarker);
       if (carbonRouteLine) map.removeLayer(carbonRouteLine);
@@ -431,7 +494,6 @@
       updateCarbonStats(distanceKm);
     } catch (err) {
       console.warn('updateCarbonMapFromInputs:', err);
-      // hide stats/map gracefully if something is off
       $('#carbonStats')?.classList.add('hidden');
     }
   }
@@ -463,12 +525,9 @@
       refreshFarmsList();
     });
 
-    // Open modal for farm coordinates
     $('#pickLocationBtn')?.addEventListener('click', () => openMapModal('farm'));
-    // Open modal for consumer coordinates (Carbon Seal)
     $('#pickConsumerBtn')?.addEventListener('click', () => openMapModal('consumer'));
 
-    // Optional: Use browser geolocation for consumer
     $('#useMyLocationBtn')?.addEventListener('click', () => {
       if (!navigator.geolocation) return showToast('Geolocation not supported', 'error');
       navigator.geolocation.getCurrentPosition(
@@ -483,7 +542,6 @@
       );
     });
 
-    // Confirm in modal (writes to whichever target is active)
     $('#confirmLocationBtn')?.addEventListener('click', () => {
       const lat = parseFloat($('#modalLat').value);
       const lon = parseFloat($('#modalLon').value);
@@ -501,7 +559,6 @@
       closeMapModal();
     });
 
-    // Manual typing updates farm preview
     const previewUpdate = () => {
       const lat = parseFloat($('#farmLat').value);
       const lon = parseFloat($('#farmLon').value);
@@ -510,7 +567,6 @@
     $('#farmLat')?.addEventListener('change', previewUpdate);
     $('#farmLon')?.addEventListener('change', previewUpdate);
 
-    // Manual typing or product change updates carbon map
     $('#carbonProductId')?.addEventListener('change', () => { updateCarbonMapFromInputs().catch(() => {}); });
     $('#consumerLat')?.addEventListener('change', () => { updateCarbonMapFromInputs().catch(() => {}); });
     $('#consumerLon')?.addEventListener('change', () => { updateCarbonMapFromInputs().catch(() => {}); });
@@ -581,7 +637,6 @@
         await contract.methods.issueCarbonFootprintSeal(productId, consumerLat, consumerLon, tokenURI).send({ from: currentAccount });
         showToast('Carbon footprint seal issued!');
         e.target.reset();
-        // keep map with last selection; do not clear
       } catch (error) {
         console.error(error);
         showToast(`Failed to issue carbon seal: ${error?.data?.message || error?.message || 'Transaction failed'}`, 'error');
@@ -609,51 +664,90 @@
       }
     });
 
-    // View Seal NFT (by tokenId)
+    // View Seal NFT (by tokenId) — populate from metadata or on-chain
     $('#viewTokenBtn')?.addEventListener('click', async () => {
       const tokenId = $('#viewTokenId').value;
       if (!tokenId) return showToast('Enter a token ID', 'error');
       if (!ensureContract()) return;
 
       try {
+        const viewer = $('#tokenViewer');
+        const imgEl  = $('#tokenImage');
+
+        // Resolve tokenURI & attempt to fetch metadata or image
         const uri = await contract.methods.tokenURI(tokenId).call();
         const url = toHttpUrl(uri);
 
-        const viewer  = $('#tokenViewer');
-        const details = $('#tokenDetails');
-        const imgEl   = $('#tokenImage');
-
-        details.innerHTML = `<p><strong>Token #${tokenId}</strong><br><small>${escapeHTML(url)}</small></p>`;
-
-        // Try to load metadata/image
+        let meta = null;
         let imageUrl = null;
+
         try {
           const res = await fetch(url);
           const ct = (res.headers.get('content-type') || '').toLowerCase();
-          if (ct.includes('application/json')) {
-            const meta = await res.json();
-            const name = meta.name || '';
-            const desc = meta.description || '';
-            imageUrl = toHttpUrl(meta.image || meta.image_url);
-            if (name) details.innerHTML += `<p><strong>Name:</strong> ${escapeHTML(name)}</p>`;
-            if (desc) details.innerHTML += `<p>${escapeHTML(desc)}</p>`;
+          if (ct.includes('application/json') || /\.json($|\?)/i.test(url)) {
+            meta = await res.json();
+            imageUrl = toHttpUrl(meta.image || meta.image_url || readAttr(meta, ['image']));
           } else if (ct.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg)$/i.test(url)) {
             imageUrl = url;
           }
-        } catch (_) { /* ignore fetch errors; we still show tokenURI */ }
+        } catch (e) {
+          console.warn('tokenURI fetch failed:', e);
+        }
 
+        // Try to read seal data directly from chain (fallback if metadata is bare image)
+        const seal = await readSealOnChainByTokenId(tokenId);
+
+        // Fill left column (Seal Details)
+        $('#tvTokenId').textContent  = tokenId;
+        $('#tvType').textContent     = (readAttr(meta, ['type','sealType','category']) || seal?.type || 'Seal NFT');
+        const footprint = readAttr(meta, ['carbonFootprint','footprintKg','footprint','co2_kg','co2']) ?? seal?.footprint;
+        $('#tvFootprint').textContent = footprint != null ? String(footprint) : '—';
+        const valid = readAttr(meta, ['valid','verified']);
+        $('#tvValid').textContent     = valid != null ? prettyBool(valid) : (seal ? prettyBool(seal.valid) : '—');
+        const issued = readAttr(meta, ['issued','issuedAt','issue_date','date']) ?? seal?.issued;
+        $('#tvIssued').textContent    = issued != null ? String(issued) : '—';
+        const verification = readAttr(meta, ['verification','verifier','certificate','cert']) ?? seal?.verification;
+        $('#tvVerification').textContent = verification != null ? String(verification) : '—';
+
+        // Determine productId (metadata first, then chain)
+        const productIdFromMeta = readAttr(meta, ['productId','product_id','productID','product']);
+        const productId = productIdFromMeta ?? seal?.productId;
+        $('#tvProductId').textContent = productId ?? '—';
+
+        // Build caption under image (product/farm/batch/qty if we can)
+        const name = meta?.name ? String(meta.name) : null;
+        const desc = meta?.description ? String(meta.description) : null;
+        let caption = name ? (desc ? `${name} — ${desc}` : name) : (desc || '');
+
+        if (productId != null) {
+          try {
+            const prod = await contract.methods.getProduct(productId).call();
+            const farm = await contract.methods.getFarm(prod.farmId).call();
+            const cap = [
+              prod.productName ? `Product: ${prod.productName}` : null,
+              farm.name ? `Farm: ${farm.name}` : null,
+              prod.batchId ? `Batch: ${prod.batchId}` : null,
+              (prod.quantity ? `Quantity: ${prod.quantity} kg` : null)
+            ].filter(Boolean).join(' — ');
+            if (cap) caption = cap;
+          } catch {/* ignore */}
+        }
+        $('#tokenCaption').textContent = caption;
+
+        // Image
         if (imageUrl) {
           imgEl.src = imageUrl;
-          imgEl.classList.remove('hidden');
+          imgEl.style.display = 'block';
         } else {
-          imgEl.classList.add('hidden');
+          imgEl.removeAttribute('src');
+          imgEl.style.display = 'none';
         }
 
         viewer.classList.remove('hidden');
         showToast('NFT loaded');
       } catch (err) {
         console.error(err);
-        showToast('Failed to load tokenURI', 'error');
+        showToast('Failed to load token', 'error');
         $('#tokenViewer')?.classList.add('hidden');
       }
     });
@@ -824,7 +918,6 @@
       initMaps();
     });
 
-    // Final safety: if Leaflet never loads in 5s, hide map features gracefully
     setTimeout(() => {
       if (typeof L === 'undefined') {
         console.warn('Leaflet failed to load. Maps will not be available.');

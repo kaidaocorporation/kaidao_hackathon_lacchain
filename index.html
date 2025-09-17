@@ -384,10 +384,33 @@
               <i class="fas fa-image"></i>
               <span class="verify-title">Seal NFT</span>
             </div>
-            <div id="tokenDetails" class="verify-details"></div>
-            <img id="tokenImage" class="hidden" alt="NFT image"
-                 style="max-width:100%;border-radius:10px;margin-top:10px;">
+
+            <!-- 2-column layout: details (left) + preview (right) -->
+            <div class="token-grid" style="display:grid;grid-template-columns:1fr 1.2fr;gap:18px;align-items:start;">
+              <!-- LEFT: details -->
+              <div id="tokenDetails" class="verify-details">
+                <div style="font-weight:600;margin-bottom:8px;">Seal Details</div>
+                <div class="kv">
+                  <div><span>Token ID:</span><strong id="tvTokenId">—</strong></div>
+                  <div><span>Product ID:</span><strong id="tvProductId">—</strong></div>
+                  <div><span>Type:</span><strong id="tvType">—</strong></div>
+                  <div><span>Carbon Footprint:</span><strong id="tvFootprint">—</strong></div>
+                  <div><span>Valid:</span><strong id="tvValid">—</strong></div>
+                  <div><span>Issued:</span><strong id="tvIssued">—</strong></div>
+                  <div><span>Verification:</span><strong id="tvVerification">—</strong></div>
+                </div>
+                <div id="tvNote" style="margin-top:10px;color:#6b7280;font-size:13px;"></div>
+              </div>
+
+              <!-- RIGHT: image preview -->
+              <div>
+                <img id="tokenImage" class="" alt="NFT image"
+                    style="width:100%;height:auto;border-radius:12px;display:block;"/>
+                <div id="tokenCaption" style="margin-top:8px;color:#374151;font-size:14px;"></div>
+              </div>
+            </div>
           </div>
+
         </div>
       </div>
     </div>
