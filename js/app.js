@@ -1,5 +1,5 @@
 // app.js
-// Core UI + Web3 + Leaflet logic (migrated from inline <script>)
+// Core UI + Web3 + Leaflet logic
 
 (function () {
   'use strict';
@@ -7,7 +7,6 @@
   // ---- Leaflet fallback if primary CDN failed ----
   function ensureLeafletLoaded(cb) {
     if (typeof L !== 'undefined') return cb();
-    // inject fallback scripts/styles
     const altJs = document.createElement('script');
     altJs.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js';
     const altCss = document.createElement('link');
@@ -22,31 +21,34 @@
   // ---- State ----
   let web3, contract, currentAccount, provider;
   let farmsMap, journeyMap, modalMapInstance, farmPreviewMap, productVerifyMapInstance;
-  let selectedLocation = null;
+
+  // carbon map state
+  let carbonMap, carbonFarmMarker, carbonConsumerMarker, carbonRouteLine;
+
   let farmMarkers = [];
+  let mapPickTarget = null; // 'farm' | 'consumer'
 
   const DEFAULT_CENTER = [4.570868, -74.297333]; // Colombia
+  const EMISSION_PER_KM_PER_KG = 0.0006; // simple default rule: 0.0006 kg CO2 per km per kg
 
-  // Icons
+  // ---- Icons ----
   const farmIcon = () => L.divIcon({
     html: '<div style="background:#10b981;color:white;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.3);"><i class="fas fa-tractor" style="font-size:14px;"></i></div>',
     iconSize: [30, 30],
     className: 'custom-div-icon'
   });
-
   const standardFarmIcon = () => L.divIcon({
     html: '<div style="background:#f59e0b;color:white;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.3);"><i class="fas fa-tractor" style="font-size:14px;"></i></div>',
     iconSize: [30, 30],
     className: 'custom-div-icon'
   });
-
   const consumerIcon = () => L.divIcon({
     html: '<div style="background:#f97316;color:white;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(0,0,0,0.3);"><i class="fas fa-shopping-cart" style="font-size:14px;"></i></div>',
     iconSize: [30, 30],
     className: 'custom-div-icon'
   });
 
-  // DOM helpers
+  // ---- DOM helpers ----
   const $  = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
@@ -62,40 +64,6 @@
     }
   }
 
-  async function ensureSepoliaNetwork(provider) {
-    const desired = (window.EcoTraceDAO && window.EcoTraceDAO.chainId) || '0xaa36a7'; // Sepolia
-    const current = await provider.request({ method: 'eth_chainId' });
-    if (current === desired) return;
-  
-    try {
-      // Try to switch
-      await provider.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: desired }],
-      });
-    } catch (switchErr) {
-      // If chain not added, add it
-      if (switchErr.code === 4902) {
-        try {
-          await provider.request({
-            method: 'wallet_addEthereumChain',
-            params: [{
-              chainId: desired,
-              chainName: 'Sepolia',
-              nativeCurrency: { name: 'Sepolia ETH', symbol: 'ETH', decimals: 18 },
-              rpcUrls: ['https://rpc.sepolia.org'],
-              blockExplorerUrls: ['https://sepolia.etherscan.io'],
-            }],
-          });
-        } catch (addErr) {
-          throw addErr;
-        }
-      } else {
-        throw switchErr;
-      }
-    }
-  }
-
   function showToast(message, type = 'success') {
     const toast = $('#toast');
     const msg = $('#toastMessage');
@@ -108,7 +76,7 @@
     setTimeout(() => toast.classList.remove('show'), 3000);
   }
 
-  // Utils
+  // ---- Utils ----
   function toDegrees(intScaled) {
     const n = Number(intScaled);
     if (!Number.isFinite(n)) return null;
@@ -136,8 +104,17 @@
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#39;');
   }
+  function haversineKm(aLat, aLon, bLat, bLon) {
+    const R = 6371; // km
+    const dLat = (bLat - aLat) * Math.PI / 180;
+    const dLon = (bLon - aLon) * Math.PI / 180;
+    const s1 = Math.sin(dLat/2) ** 2 +
+               Math.cos(aLat * Math.PI/180) * Math.cos(bLat * Math.PI/180) *
+               (Math.sin(dLon/2) ** 2);
+    return 2 * R * Math.asin(Math.sqrt(s1));
+  }
 
-  // Web3
+  // ---- Web3 / Network ----
   function getInjectedProvider() {
     const eth = window.ethereum;
     if (!eth) return null;
@@ -148,81 +125,80 @@
     return eth;
   }
 
-  async function initWeb3() {
-    // helper: enforce Sepolia (11155111 / 0xaa36a7)
-    async function ensureSepoliaNetwork(provider) {
-      const desired = (window.EcoTraceDAO && window.EcoTraceDAO.chainId) || '0xaa36a7'; // Sepolia
-      const current = await provider.request({ method: 'eth_chainId' });
-      if (current === desired) return;
-  
-      try {
+  async function ensureSepoliaNetwork(provider) {
+    const desired = (window.EcoTraceDAO && window.EcoTraceDAO.chainId) || '0xaa36a7'; // Sepolia
+    const current = await provider.request({ method: 'eth_chainId' });
+    if (current === desired) return;
+
+    try {
+      await provider.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: desired }],
+      });
+    } catch (err) {
+      // 4902 => chain not added
+      if (err && err.code === 4902) {
         await provider.request({
-          method: 'wallet_switchEthereumChain',
-          params: [{ chainId: desired }],
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: desired,
+            chainName: 'Sepolia',
+            nativeCurrency: { name: 'Sepolia ETH', symbol: 'ETH', decimals: 18 },
+            rpcUrls: ['https://rpc.sepolia.org'],
+            blockExplorerUrls: ['https://sepolia.etherscan.io'],
+          }],
         });
-      } catch (err) {
-        // 4902 => chain not added yet
-        if (err && err.code === 4902) {
-          await provider.request({
-            method: 'wallet_addEthereumChain',
-            params: [{
-              chainId: desired,
-              chainName: 'Sepolia',
-              nativeCurrency: { name: 'Sepolia ETH', symbol: 'ETH', decimals: 18 },
-              rpcUrls: ['https://rpc.sepolia.org'],
-              blockExplorerUrls: ['https://sepolia.etherscan.io'],
-            }],
-          });
-        } else {
-          throw err;
-        }
+      } else {
+        throw err;
       }
     }
-  
+  }
+
+  async function initWeb3() {
     provider = getInjectedProvider();
     if (!provider) {
       showToast('Please install MetaMask!', 'error');
       return;
     }
-  
+
     web3 = new Web3(provider);
-  
+
     try {
       // 1) Force Sepolia before requesting accounts
       await ensureSepoliaNetwork(provider);
-  
+
       // 2) Request accounts
       await provider.request({ method: 'eth_requestAccounts' });
       const accounts = await web3.eth.getAccounts();
       currentAccount = accounts[0];
-  
+
       // 3) Load contract config (expects contracts.js to set window.EcoTraceDAO)
       const cfg = (typeof window !== 'undefined' && window.EcoTraceDAO) ? window.EcoTraceDAO : {};
       const ADDRESS = cfg.address ?? window.CONTRACT_ADDRESS;
       const ABI = cfg.abi ?? window.CONTRACT_ABI;
-  
+
       if (!ADDRESS || !ABI) {
         showToast('Missing contract configuration', 'error');
         return;
       }
-  
+
       // 4) Instantiate contract
       contract = new web3.eth.Contract(ABI, ADDRESS);
-  
+
       // 5) UI + listeners
       setConnectedUI(true);
       showToast('Wallet connected successfully!');
-  
+
       provider.on('accountsChanged', onAccountsChanged);
       provider.on('chainChanged', onChainChanged);
-  
+
       // 6) Initial data load
       refreshFarmsList().catch((e) => console.warn('refreshFarmsList error:', e));
     } catch (error) {
       console.error('initWeb3 error:', error);
       showToast(`Failed to connect wallet: ${error?.message || 'Unknown error'}`, 'error');
     }
-  }  
+  }
 
   function onAccountsChanged(accounts) {
     currentAccount = accounts && accounts[0] ? accounts[0] : undefined;
@@ -230,6 +206,8 @@
       setConnectedUI(true);
       showToast('Account changed');
       refreshFarmsList().catch(() => {});
+      // refresh any carbon map that depends on reads
+      updateCarbonMapFromInputs().catch(() => {});
     } else {
       setConnectedUI(false);
       showToast('Wallet disconnected', 'error');
@@ -251,23 +229,26 @@
     return true;
   }
 
-  // Maps
+  // ---- Maps ----
   function initMaps() {
     if ($('#farmsMap') && !farmsMap) {
       farmsMap = L.map('farmsMap').setView(DEFAULT_CENTER, 5);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors' }).addTo(farmsMap);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+      }).addTo(farmsMap);
     }
 
     if ($('#journeyMap') && !journeyMap) {
       journeyMap = L.map('journeyMap').setView(DEFAULT_CENTER, 5);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors' }).addTo(journeyMap);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+      }).addTo(journeyMap);
 
       const farmLocation = [4.596, -74.081];         // Bogotá
       const consumerLocation = [25.7617, -80.1918];  // Miami
 
       L.marker(farmLocation, { icon: farmIcon() }).addTo(journeyMap)
         .bindPopup('<strong>Farm Origin</strong><br>Finca Café Verde<br>Bogotá, Colombia');
-
       L.marker(consumerLocation, { icon: consumerIcon() }).addTo(journeyMap)
         .bindPopup('<strong>Destination</strong><br>Miami, FL, USA');
 
@@ -306,27 +287,52 @@
     }
   }
 
-  // Expose modal controls globally (used by HTML onclick)
-  window.openMapModal = function () {
+  // ===== Map Picker (supports 'farm' and 'consumer') =====
+  window.openMapModal = function (target = 'farm') {
+    mapPickTarget = target;
     const modal = $('#mapModal');
     modal.classList.add('show');
 
     if (!modalMapInstance) {
       modalMapInstance = L.map('modalMap').setView(DEFAULT_CENTER, 5);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap contributors' }).addTo(modalMapInstance);
-
-      let tempMarker;
-      modalMapInstance.on('click', function (e) {
-        if (tempMarker) modalMapInstance.removeLayer(tempMarker);
-        tempMarker = L.marker(e.latlng, { icon: farmIcon() }).addTo(modalMapInstance);
-        $('#modalLat').value = e.latlng.lat.toFixed(6);
-        $('#modalLon').value = e.latlng.lng.toFixed(6);
-        selectedLocation = e.latlng;
-      });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+      }).addTo(modalMapInstance);
     }
+
+    // Clear any previous marker and click handlers
+    modalMapInstance.eachLayer(layer => { if (layer instanceof L.Marker) modalMapInstance.removeLayer(layer); });
+    modalMapInstance.off('click');
+
+    let tempMarker;
+    modalMapInstance.on('click', function (e) {
+      if (tempMarker) modalMapInstance.removeLayer(tempMarker);
+      const icon = (mapPickTarget === 'consumer') ? consumerIcon() : farmIcon();
+      tempMarker = L.marker(e.latlng, { icon }).addTo(modalMapInstance);
+
+      const lat = e.latlng.lat.toFixed(6);
+      const lon = e.latlng.lng.toFixed(6);
+      $('#modalLat').value = lat;
+      $('#modalLon').value = lon;
+
+      // Auto-fill target form immediately
+      if (mapPickTarget === 'farm') {
+        $('#farmLat').value = lat;
+        $('#farmLon').value = lon;
+        updateFarmPreview(parseFloat(lat), parseFloat(lon));
+      } else if (mapPickTarget === 'consumer') {
+        $('#consumerLat').value = lat;
+        $('#consumerLon').value = lon;
+        updateCarbonMapFromInputs().catch(() => {});
+      }
+    });
+
     setTimeout(() => modalMapInstance.invalidateSize(), 100);
   };
-  window.closeMapModal = function () { $('#mapModal').classList.remove('show'); };
+
+  window.closeMapModal = function () {
+    $('#mapModal').classList.remove('show');
+  };
 
   function updateFarmPreview(lat, lon) {
     const preview = $('#farmMapPreview');
@@ -344,7 +350,86 @@
     setTimeout(() => farmPreviewMap.invalidateSize(), 100);
   }
 
-  // Tabs & Forms
+  // ===== Carbon route map =====
+  function ensureCarbonMap() {
+    const container = $('#carbonMap');
+    if (!container) return null;
+    container.classList.remove('hidden');
+
+    if (!carbonMap) {
+      carbonMap = L.map('carbonMap').setView(DEFAULT_CENTER, 3);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap'
+      }).addTo(carbonMap);
+      setTimeout(() => carbonMap.invalidateSize(), 100);
+    }
+    return carbonMap;
+  }
+
+  function updateCarbonStats(distanceKm) {
+    const stats = $('#carbonStats');
+    if (!stats) return;
+    stats.classList.remove('hidden');
+    const d = $('#distanceKm');
+    const f = $('#footprintKg');
+    if (d) d.textContent = distanceKm.toFixed(1);
+    if (f) f.textContent = (distanceKm * EMISSION_PER_KM_PER_KG).toFixed(2);
+  }
+
+  async function loadFarmCoordsForProduct(productId) {
+    if (!ensureContract()) throw new Error('No contract');
+    const product = await contract.methods.getProduct(productId).call();
+    const farm = await contract.methods.getFarm(product.farmId).call();
+    const lat = toDegrees(farm.latitude);
+    const lon = toDegrees(farm.longitude);
+    if (!lat || !lon) throw new Error('Farm has no coordinates');
+    return { lat, lon, farmName: farm.name, isDeforestationFree: farm.isDeforestationFree };
+  }
+
+  async function updateCarbonMapFromInputs() {
+    // Need productId and consumer lat/lon
+    const productId = $('#carbonProductId')?.value?.trim();
+    const cLat = parseFloat($('#consumerLat')?.value);
+    const cLon = parseFloat($('#consumerLon')?.value);
+    if (!productId || Number.isNaN(cLat) || Number.isNaN(cLon)) return;
+
+    try {
+      const farmData = await loadFarmCoordsForProduct(productId);
+      const map = ensureCarbonMap();
+      if (!map) return;
+
+      // Clear existing markers/line
+      if (carbonFarmMarker) map.removeLayer(carbonFarmMarker);
+      if (carbonConsumerMarker) map.removeLayer(carbonConsumerMarker);
+      if (carbonRouteLine) map.removeLayer(carbonRouteLine);
+
+      carbonFarmMarker = L.marker([farmData.lat, farmData.lon], {
+        icon: farmData.isDeforestationFree ? farmIcon() : standardFarmIcon()
+      }).bindPopup(`<strong>${escapeHTML(farmData.farmName || 'Farm')}</strong>`).addTo(map);
+
+      carbonConsumerMarker = L.marker([cLat, cLon], {
+        icon: consumerIcon()
+      }).bindPopup('<strong>Consumer</strong>').addTo(map);
+
+      carbonRouteLine = L.polyline([[farmData.lat, farmData.lon], [cLat, cLon]], {
+        color: '#3b82f6',
+        weight: 3,
+        opacity: 0.7,
+        dashArray: '10, 10'
+      }).addTo(map);
+
+      map.fitBounds(carbonRouteLine.getBounds().pad(0.2));
+
+      const distanceKm = haversineKm(farmData.lat, farmData.lon, cLat, cLon);
+      updateCarbonStats(distanceKm);
+    } catch (err) {
+      console.warn('updateCarbonMapFromInputs:', err);
+      // hide stats/map gracefully if something is off
+      $('#carbonStats')?.classList.add('hidden');
+    }
+  }
+
+  // ---- Tabs & Forms ----
   function wireTabs() {
     $$('.tab-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -357,6 +442,7 @@
         setTimeout(() => {
           if (farmsMap) farmsMap.invalidateSize();
           if (journeyMap) journeyMap.invalidateSize();
+          if (carbonMap) carbonMap.invalidateSize();
         }, 100);
       });
     });
@@ -370,17 +456,45 @@
       refreshFarmsList();
     });
 
-    $('#pickLocationBtn')?.addEventListener('click', openMapModal);
+    // Open modal for farm coordinates
+    $('#pickLocationBtn')?.addEventListener('click', () => openMapModal('farm'));
+    // Open modal for consumer coordinates (Carbon Seal)
+    $('#pickConsumerBtn')?.addEventListener('click', () => openMapModal('consumer'));
 
-    $('#confirmLocationBtn')?.addEventListener('click', () => {
-      if (selectedLocation) {
-        $('#farmLat').value = selectedLocation.lat.toFixed(6);
-        $('#farmLon').value = selectedLocation.lng.toFixed(6);
-        updateFarmPreview(selectedLocation.lat, selectedLocation.lng);
-        closeMapModal();
-      }
+    // Optional: Use browser geolocation for consumer
+    $('#useMyLocationBtn')?.addEventListener('click', () => {
+      if (!navigator.geolocation) return showToast('Geolocation not supported', 'error');
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          $('#consumerLat').value = latitude.toFixed(6);
+          $('#consumerLon').value = longitude.toFixed(6);
+          updateCarbonMapFromInputs().catch(() => {});
+        },
+        () => showToast('Unable to get your location', 'error'),
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
     });
 
+    // Confirm in modal (writes to whichever target is active)
+    $('#confirmLocationBtn')?.addEventListener('click', () => {
+      const lat = parseFloat($('#modalLat').value);
+      const lon = parseFloat($('#modalLon').value);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        if (mapPickTarget === 'farm') {
+          $('#farmLat').value = lat.toFixed(6);
+          $('#farmLon').value = lon.toFixed(6);
+          updateFarmPreview(lat, lon);
+        } else if (mapPickTarget === 'consumer') {
+          $('#consumerLat').value = lat.toFixed(6);
+          $('#consumerLon').value = lon.toFixed(6);
+          updateCarbonMapFromInputs().catch(() => {});
+        }
+      }
+      closeMapModal();
+    });
+
+    // Manual typing updates farm preview
     const previewUpdate = () => {
       const lat = parseFloat($('#farmLat').value);
       const lon = parseFloat($('#farmLon').value);
@@ -388,6 +502,13 @@
     };
     $('#farmLat')?.addEventListener('change', previewUpdate);
     $('#farmLon')?.addEventListener('change', previewUpdate);
+
+    // Manual typing or product change updates carbon map
+    $('#carbonProductId')?.addEventListener('change', () => { updateCarbonMapFromInputs().catch(() => {}); });
+    $('#consumerLat')?.addEventListener('change', () => { updateCarbonMapFromInputs().catch(() => {}); });
+    $('#consumerLon')?.addEventListener('change', () => { updateCarbonMapFromInputs().catch(() => {}); });
+
+    // ----- Forms: on-chain calls -----
 
     // Register Farm
     $('#farmForm')?.addEventListener('submit', async (e) => {
@@ -453,6 +574,7 @@
         await contract.methods.issueCarbonFootprintSeal(productId, consumerLat, consumerLon, tokenURI).send({ from: currentAccount });
         showToast('Carbon footprint seal issued!');
         e.target.reset();
+        // keep map with last selection; do not clear
       } catch (error) {
         console.error(error);
         showToast(`Failed to issue carbon seal: ${error?.data?.message || error?.message || 'Transaction failed'}`, 'error');
@@ -480,7 +602,7 @@
       }
     });
 
-    // Verify Product
+    // Verify Product (read-only)
     $('#verifyBtn')?.addEventListener('click', async () => {
       const productId = $('#verifyProductId').value;
       if (!productId) return showToast('Please enter a product ID', 'error');
@@ -530,7 +652,7 @@
     });
   }
 
-  // Farms list rendering and loading
+  // ---- Farms list rendering and loading ----
   async function refreshFarmsList() {
     const grid = $('#farmsList');
     const empty = $('#farmsEmpty');
@@ -638,7 +760,7 @@
     return card;
   }
 
-  // Initialize once DOM is ready and Leaflet is ensured
+  // ---- Boot ----
   document.addEventListener('DOMContentLoaded', () => {
     ensureLeafletLoaded(() => {
       wireTabs();
@@ -650,7 +772,7 @@
     setTimeout(() => {
       if (typeof L === 'undefined') {
         console.warn('Leaflet failed to load. Maps will not be available.');
-        document.querySelectorAll('.map-container, #pickLocationBtn').forEach(el => { if (el) el.style.display = 'none'; });
+        document.querySelectorAll('.map-container, #pickLocationBtn, #pickConsumerBtn').forEach(el => { if (el) el.style.display = 'none'; });
       }
     }, 5000);
   });

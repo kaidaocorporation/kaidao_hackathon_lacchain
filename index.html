@@ -53,7 +53,7 @@
     <!-- ==================== Product Trace Tab ==================== -->
     <div id="trace-tab" class="tab-content">
 
-      <!-- About EcoTraceDAO (merged/kept) -->
+      <!-- About EcoTraceDAO -->
       <div class="card about-card" id="aboutEcoTrace">
         <div class="about-header">
           <div class="about-icon"><i class="fas fa-circle-info"></i></div>
@@ -96,14 +96,13 @@
         </div>
       </div>
 
-      <!-- Product Journey (with interactive map kept) -->
+      <!-- Product Journey (demo route) -->
       <div class="card">
         <h2 class="card-title">
           <i class="fas fa-seedling" style="color:#10b981;margin-right:12px;"></i>
           Product Journey Visualization
         </h2>
 
-        <!-- Interactive Journey Map -->
         <div id="journeyMap" class="map-container"></div>
 
         <div class="journey-steps">
@@ -168,7 +167,7 @@
         </div>
       </div>
 
-      <!-- Registered Farms (MAP + list kept) -->
+      <!-- Registered Farms -->
       <div class="card">
         <h2 class="card-title">
           <i class="fas fa-globe-americas" style="color:#10b981; margin-right:12px;"></i>
@@ -194,7 +193,6 @@
           </button>
         </div>
 
-        <!-- Grid populated by JS -->
         <div id="farmsList" class="seals-grid"></div>
         <div id="farmsEmpty" class="text-center mb-4 hidden" style="color:#6b7280;">
           No farms found.
@@ -272,55 +270,74 @@
       </div>
 
       <!-- Issue Seals -->
-      <div class="card mt-4">
-        <h3 class="form-title text-center">
-          <i class="fas fa-certificate" style="color:#7c3aed;margin-right:8px;"></i>
-          Issue Environmental Seals
-        </h3>
-        <div class="form-grid">
-          <!-- Carbon Seal -->
-          <div class="form-card">
-            <h4 style="font-weight:600;margin-bottom:15px;">Carbon Footprint Seal</h4>
-            <form id="carbonForm">
-              <div class="form-group">
-                <input type="number" id="carbonProductId" class="form-input" placeholder="Product ID" required>
-              </div>
+<div class="card mt-4">
+  <h3 class="form-title text-center">
+    <i class="fas fa-certificate" style="color:#7c3aed;margin-right:8px;"></i>
+    Issue Environmental Seals
+  </h3>
 
-              <div class="grid-2">
-                <div class="form-group">
-                  <input type="number" step="any" id="consumerLat" class="form-input" placeholder="Consumer Lat" required>
-                </div>
-                <div class="form-group">
-                  <input type="number" step="any" id="consumerLon" class="form-input" placeholder="Consumer Lon" required>
-                </div>
-              </div>
+  <div class="form-grid">
+    <!-- Carbon Seal -->
+    <div class="form-card">
+      <h4 style="font-weight:600;margin-bottom:15px;">Carbon Footprint Seal</h4>
 
-              <!-- Pick consumer location on map -->
-              <button type="button" id="pickConsumerBtn" class="map-pick-btn" style="margin-top:8px;">
-                <i class="fas fa-map-marked-alt"></i> Pick on Map
-              </button>
+      <form id="carbonForm">
+        <!-- Product to read farm coords from -->
+        <div class="form-group">
+          <input type="number" id="carbonProductId" class="form-input" placeholder="Product ID" required>
+        </div>
 
-              <button type="submit" class="form-btn primary" style="margin-top:12px;">Issue Carbon Seal</button>
-            </form>
+        <!-- Consumer lat/lon -->
+        <div class="grid-2">
+          <div class="form-group">
+            <input type="number" step="any" id="consumerLat" class="form-input" placeholder="Consumer Lat" required>
           </div>
-
-
-          <!-- Deforestation-Free -->
-          <div class="form-card">
-            <h4 style="font-weight:600;margin-bottom:15px;">Deforestation-Free Seal</h4>
-            <form id="deforestationForm">
-              <div class="form-group">
-                <input type="number" id="defoProductId" class="form-input" placeholder="Product ID" required>
-              </div>
-              <div class="form-group">
-                <input type="text" id="verificationData" class="form-input" placeholder="Verification Data" required>
-              </div>
-              <button type="submit" class="form-btn secondary">Issue Deforestation Seal</button>
-            </form>
+          <div class="form-group">
+            <input type="number" step="any" id="consumerLon" class="form-input" placeholder="Consumer Lon" required>
           </div>
         </div>
-      </div>
+
+        <!-- Actions -->
+        <div class="grid-2" style="gap:12px; margin-top:8px;">
+          <button type="button" id="pickConsumerBtn" class="map-pick-btn">
+            <i class="fas fa-map-marked-alt"></i> Pick on Map
+          </button>
+          <button type="button" id="useMyLocationBtn" class="map-pick-btn">
+            <i class="fas fa-compass"></i> Use My Location
+          </button>
+        </div>
+
+        <!-- Route map + quick stats -->
+        <div id="carbonMap" class="map-container map-mini hidden" style="margin-top:12px;"></div>
+
+        <div id="carbonStats" class="hidden" style="margin-top:8px; color:#6b7280; font-size:14px;">
+          Distance: <strong><span id="distanceKm">0.0</span> km</strong>
+          &nbsp;•&nbsp;
+          Est. CO₂ per kg: <strong><span id="footprintKg">0.00</span> kg</strong>
+        </div>
+
+        <button type="submit" class="form-btn primary" style="margin-top:12px;">
+          Issue Carbon Seal
+        </button>
+      </form>
     </div>
+
+    <!-- Deforestation-Free -->
+    <div class="form-card">
+      <h4 style="font-weight:600;margin-bottom:15px;">Deforestation-Free Seal</h4>
+      <form id="deforestationForm">
+        <div class="form-group">
+          <input type="number" id="defoProductId" class="form-input" placeholder="Product ID" required>
+        </div>
+        <div class="form-group">
+          <input type="text" id="verificationData" class="form-input" placeholder="Verification Data" required>
+        </div>
+        <button type="submit" class="form-btn secondary">Issue Deforestation Seal</button>
+      </form>
+    </div>
+  </div>
+</div>
+
 
     <!-- ==================== Consumer Portal Tab ==================== -->
     <div id="consumer-tab" class="tab-content hidden">
@@ -348,7 +365,6 @@
             </div>
             <div id="verificationDetails" class="verify-details"></div>
 
-            <!-- Product Location Map -->
             <div id="productVerifyMap" class="map-container map-mini hidden"></div>
           </div>
         </div>
@@ -356,15 +372,15 @@
     </div>
   </div>
 
-  <!-- Map Selection Modal -->
+  <!-- Map Selection Modal (used for farm & consumer picks) -->
   <div id="mapModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
-        <h3>Select Farm Location</h3>
+        <h3>Select Location</h3>
         <button class="modal-close" onclick="closeMapModal()">&times;</button>
       </div>
       <div class="modal-body">
-        <p style="color:#6b7280; margin-bottom:15px;">Click on the map to select your farm location</p>
+        <p style="color:#6b7280; margin-bottom:15px;">Click on the map to select a location.</p>
         <div id="modalMap" class="modal-map"></div>
         <div class="grid-2">
           <div class="form-group">
