@@ -64,6 +64,13 @@
     }
   }
 
+  function toHttpUrl(uri) {
+    if (!uri) return null;
+    if (uri.startsWith('ipfs://')) return 'https://ipfs.io/ipfs/' + uri.slice(7);
+    return uri;
+  }
+  
+
   function showToast(message, type = 'success') {
     const toast = $('#toast');
     const msg = $('#toastMessage');
@@ -599,6 +606,55 @@
       } catch (error) {
         console.error(error);
         showToast(`Failed to issue deforestation seal: ${error?.data?.message || error?.message || 'Transaction failed'}`, 'error');
+      }
+    });
+
+    // View Seal NFT (by tokenId)
+    $('#viewTokenBtn')?.addEventListener('click', async () => {
+      const tokenId = $('#viewTokenId').value;
+      if (!tokenId) return showToast('Enter a token ID', 'error');
+      if (!ensureContract()) return;
+
+      try {
+        const uri = await contract.methods.tokenURI(tokenId).call();
+        const url = toHttpUrl(uri);
+
+        const viewer  = $('#tokenViewer');
+        const details = $('#tokenDetails');
+        const imgEl   = $('#tokenImage');
+
+        details.innerHTML = `<p><strong>Token #${tokenId}</strong><br><small>${escapeHTML(url)}</small></p>`;
+
+        // Try to load metadata/image
+        let imageUrl = null;
+        try {
+          const res = await fetch(url);
+          const ct = (res.headers.get('content-type') || '').toLowerCase();
+          if (ct.includes('application/json')) {
+            const meta = await res.json();
+            const name = meta.name || '';
+            const desc = meta.description || '';
+            imageUrl = toHttpUrl(meta.image || meta.image_url);
+            if (name) details.innerHTML += `<p><strong>Name:</strong> ${escapeHTML(name)}</p>`;
+            if (desc) details.innerHTML += `<p>${escapeHTML(desc)}</p>`;
+          } else if (ct.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg)$/i.test(url)) {
+            imageUrl = url;
+          }
+        } catch (_) { /* ignore fetch errors; we still show tokenURI */ }
+
+        if (imageUrl) {
+          imgEl.src = imageUrl;
+          imgEl.classList.remove('hidden');
+        } else {
+          imgEl.classList.add('hidden');
+        }
+
+        viewer.classList.remove('hidden');
+        showToast('NFT loaded');
+      } catch (err) {
+        console.error(err);
+        showToast('Failed to load tokenURI', 'error');
+        $('#tokenViewer')?.classList.add('hidden');
       }
     });
 
