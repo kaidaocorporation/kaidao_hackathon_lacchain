@@ -57,8 +57,8 @@
   const DEMO_PRODUCTS = [
     { code: 'PRD-001', name: 'Organic Coffee Beans', farm: 'Highland Farm',      location: 'Colombia', carbonScore: 92, tokens: 15, status: 'Active'  },
     { code: 'PRD-002', name: 'Sustainable Avocados', farm: 'Green Valley Co-op', location: 'Mexico',   carbonScore: 88, tokens: 8,  status: 'Active'  },
-    { code: 'PRD-003', name: 'Fair Trade Bananas',    farm: 'Tropical Farms Ltd', location: 'Ecuador',  carbonScore: 76, tokens: 12, status: 'Pending' },
-    { code: 'PRD-004', name: 'Regenerative Quinoa',   farm: 'Andean Growers',     location: 'Peru',     carbonScore: 95, tokens: 20, status: 'Active'  },
+    { code: 'PRD-003', name: 'Fair Trade Bananas',   farm: 'Tropical Farms Ltd', location: 'Ecuador',  carbonScore: 76, tokens: 12, status: 'Pending' },
+    { code: 'PRD-004', name: 'Regenerative Quinoa',  farm: 'Andean Growers',     location: 'Peru',     carbonScore: 95, tokens: 20, status: 'Active'  },
   ];
 
   // ================= Icons =================
@@ -158,6 +158,10 @@
                Math.cos(aLat * Math.PI/180) * Math.cos(bLat * Math.PI/180) *
                (Math.sin(dLon/2) ** 2);
     return 2 * R * Math.asin(Math.sqrt(s1));
+  }
+  function addressesEqual(a, b) {
+    if (!a || !b) return false;
+    return String(a).toLowerCase() === String(b).toLowerCase();
   }
 
   // -------- Flexible metadata helpers --------
@@ -543,7 +547,75 @@
     }
   }
 
-  // ------- Métricas bajo el donut + tabla Recent Products -------
+  // ------- Cargar productos recientes desde la cadena (de mi wallet) -------
+  async function loadRecentProductsFromChain(owner) {
+    if (!contract) return [];
+
+    let count =
+      Number(await tryCall('productCounter')) ??
+      Number(await tryCall('productsCount')) ??
+      Number(await tryCall('productCount')) ?? 0;
+
+    if (!Number.isFinite(count) || count <= 0) return [];
+
+    const items = [];
+    const ids = Array.from({ length: count }, (_, i) => i + 1);
+    const batch = 25;
+
+    for (let i = 0; i < ids.length; i += batch) {
+      const slice = ids.slice(i, i + batch);
+
+      const prods = await Promise.all(slice.map(async (id) => {
+        try { return { id, data: await contract.methods.getProduct(id).call() }; }
+        catch { return null; }
+      }));
+
+      for (const p of prods.filter(Boolean)) {
+        let farm = null;
+        try { farm = await contract.methods.getFarm(p.data.farmId).call(); } catch {}
+        if (!farm) continue;
+
+        // Solo mostrar lo que pertenece a mi wallet (farmer o dueño del producto)
+        if (owner && !(addressesEqual(farm.farmer, owner) || addressesEqual(p.data.owner, owner))) {
+          continue;
+        }
+
+        const lat = toDegrees(farm.latitude);
+        const lon = toDegrees(farm.longitude);
+
+        items.push({
+          code: `PRD-${String(p.id).padStart(3, '0')}`,
+          name: p.data.productName || `Product #${p.id}`,
+          farm: farm.name || `Farm #${p.data.farmId}`,
+          location: (lat && lon) ? `${lat.toFixed(2)}, ${lon.toFixed(2)}` : '—',
+          carbonScore: null,
+          tokens: null,
+          status: farm.isActive ? 'Active' : 'Inactive'
+        });
+      }
+    }
+
+    // Intento opcional de contar NFTs por producto si el contrato expone algo
+    async function tryTokens(productId) {
+      const maybeArray = await tryCall('getSealsByProduct', [productId]) ||
+                         await tryCall('getTokensByProduct', [productId]) ||
+                         await tryCall('getProductTokens', [productId]) || null;
+      if (Array.isArray(maybeArray)) return maybeArray.length;
+      const maybeNum = Number(maybeArray);
+      return Number.isFinite(maybeNum) ? maybeNum : null;
+    }
+
+    await Promise.all(items.map(async it => {
+      const id = Number(it.code.slice(4));
+      try {
+        const t = await tryTokens(id);
+        if (t != null) it.tokens = t;
+      } catch {}
+    }));
+
+    return items;
+  }
+
   function renderImpactMetrics(values) {
     const wrap = document.getElementById('impactMetrics');
     if (!wrap) return;
@@ -567,27 +639,31 @@
   
     tbody.innerHTML = '';
     items.forEach(p => {
+      const carbon = (typeof p.carbonScore === 'number') ? p.carbonScore : '—';
+      const tokensLabel = (typeof p.tokens === 'number') ? `${p.tokens} NFTs` : '—';
+      const isActive = String(p.status || '').toLowerCase() === 'active';
+
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td style="padding:12px 12px;background:#fff;border-radius:12px 0 0 12px;">
-          <div style="font-weight:600;">${escapeHTML(p.name)}</div>
-          <div style="color:#6b7280;font-size:13px;">${escapeHTML(p.code)}</div>
+          <div style="font-weight:600;">${escapeHTML(p.name || '—')}</div>
+          <div style="color:#6b7280;font-size:13px;">${escapeHTML(p.code || '')}</div>
         </td>
-        <td style="padding:12px 12px;background:#fff;">${escapeHTML(p.farm)}</td>
+        <td style="padding:12px 12px;background:#fff;">${escapeHTML(p.farm || '—')}</td>
         <td style="padding:12px 12px;background:#fff;">
-          <i class="fas fa-map-marker-alt" style="color:${THEME.primary};margin-right:6px;"></i>${escapeHTML(p.location)}
+          <i class="fas fa-map-marker-alt" style="color:${THEME.primary};margin-right:6px;"></i>${escapeHTML(p.location || '—')}
         </td>
         <td style="padding:12px 12px;background:#fff;">
-          <i class="fas fa-leaf" style="color:${THEME.primary};margin-right:6px;"></i><strong>${p.carbonScore}</strong>
+          <i class="fas fa-leaf" style="color:${THEME.primary};margin-right:6px;"></i><strong>${carbon}</strong>
         </td>
         <td style="padding:12px 12px;background:#fff;">
           <span style="background:#ecfdf5;color:#065f46;padding:6px 10px;border-radius:999px;font-weight:600;font-size:12px;">
-            ${p.tokens} NFTs
+            ${tokensLabel}
           </span>
         </td>
         <td style="padding:12px 12px;background:#fff;">
-          <span style="background:${p.status==='Active' ? '#ecfdf5' : '#f3f4f6'};color:${p.status==='Active' ? '#065f46' : '#374151'};padding:6px 10px;border-radius:999px;font-weight:600;font-size:12px;">
-            ${escapeHTML(p.status)}
+          <span style="background:${isActive ? '#ecfdf5' : '#f3f4f6'};color:${isActive ? '#065f46' : '#374151'};padding:6px 10px;border-radius:999px;font-weight:600;font-size:12px;">
+            ${escapeHTML(p.status || (isActive ? 'Active' : 'Inactive'))}
           </span>
         </td>
         <td style="padding:12px 12px;background:#fff;border-radius:0 12px 12px 0;text-align:center;">
@@ -664,9 +740,6 @@
         }
       });
     }
-
-    // NUEVO: pintar métricas bajo el donut
-    renderImpactMetrics(data.impact);
   }
 
   async function refreshDashboardStats() {
@@ -682,8 +755,8 @@
       impact:  [2000,1100,800,520]
     };
 
-    if (!contract) {
-      // Datos demo si no hay wallet
+    // Si no hay contrato o wallet: demos
+    if (!contract || !currentAccount) {
       initDashboardCharts(fallbackCharts);
       renderRecentProducts(DEMO_PRODUCTS);
       return;
@@ -727,13 +800,16 @@
       setTextIf(['statVerifiedFarms'], String(verifiedFarms));
       setTextIf(['statActiveFarms'], String(activeFarms));
 
-      // Por ahora usamos las series demo para las gráficas
+      // Gráficas con fallback (si más adelante quieres, se pueden calcular on-chain)
       initDashboardCharts(fallbackCharts);
-      renderRecentProducts(DEMO_PRODUCTS);
+
+      // Productos reales de MI wallet
+      const mine = await loadRecentProductsFromChain(currentAccount);
+      renderRecentProducts(mine);
     } catch (e) {
       console.warn('refreshDashboardStats error:', e);
       initDashboardCharts(fallbackCharts);
-      renderRecentProducts(DEMO_PRODUCTS);
+      renderRecentProducts([]); // sin demo si hubo error (mostramos 0 Total)
     }
   }
 
@@ -1285,3 +1361,4 @@
     }, 5000);
   });
 })();
+
