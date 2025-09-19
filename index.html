@@ -9,16 +9,19 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/web3/1.8.0/web3.min.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"/>
 
-  <!-- Leaflet for maps (primary CDN) -->
+  <!-- Leaflet (primary CDN) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
+  <!-- Chart.js for dashboard -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+
   <!-- Styles -->
   <link rel="stylesheet" href="styles.css"/>
 
-  <!-- App scripts (contracts first, then app). Use defer so DOM is ready. -->
+  <!-- App scripts -->
   <script src="js/contracts.js" defer></script>
   <script src="js/app.js" defer></script>
 </head>
@@ -48,10 +51,12 @@
       <button class="tab-btn active" data-tab="trace"><i class="fas fa-route"></i> Product Trace</button>
       <button class="tab-btn" data-tab="farmer"><i class="fas fa-tractor"></i> Farmer Portal</button>
       <button class="tab-btn" data-tab="consumer"><i class="fas fa-search"></i> Verify Product</button>
+      <button class="tab-btn" data-tab="dashboard"><i class="fas fa-chart-line"></i> Dashboard</button>
     </div>
 
     <!-- ==================== Product Trace Tab ==================== -->
     <div id="trace-tab" class="tab-content">
+      <!-- About / Journey / Farms map (igual a tu versión actual) -->
 
       <!-- About EcoTraceDAO -->
       <div class="card about-card" id="aboutEcoTrace">
@@ -64,7 +69,7 @@
           <div class="about-tags">
             <span class="tag">EVM</span>
             <span class="tag">Open Source</span>
-            <span class="tag">AGPL-3.0 License</span>
+            <span class="tag">MIT License</span>
           </div>
         </div>
 
@@ -333,7 +338,7 @@
           </div>
         </div>
       </div>
-    </div> <!-- END #farmer-tab -->
+    </div>
 
     <!-- ==================== Consumer Portal Tab ==================== -->
     <div id="consumer-tab" class="tab-content hidden">
@@ -368,24 +373,13 @@
             </div>
           </div>
 
-          <!-- Result: product + map -->
-          <div id="verificationResult" class="verify-result hidden" style="margin-top:14px;">
-            <div class="verify-header">
-              <i class="fas fa-check-circle"></i>
-              <span class="verify-title">Product Verified</span>
-            </div>
-            <div id="verificationDetails" class="verify-details"></div>
-            <div id="productVerifyMap" class="map-container map-mini hidden"></div>
-          </div>
-
-          <!-- Result: NFT viewer -->
+          <!-- Result: NFT viewer (2 columnas) -->
           <div id="tokenViewer" class="verify-result hidden" style="margin-top:14px;">
             <div class="verify-header">
               <i class="fas fa-image"></i>
               <span class="verify-title">Seal NFT</span>
             </div>
 
-            <!-- 2-column layout: details (left) + preview (right) -->
             <div class="token-grid" style="display:grid;grid-template-columns:1fr 1.2fr;gap:18px;align-items:start;">
               <!-- LEFT: details -->
               <div id="tokenDetails" class="verify-details">
@@ -404,19 +398,98 @@
 
               <!-- RIGHT: image preview -->
               <div>
-                <img id="tokenImage" class="" alt="NFT image"
-                    style="width:100%;height:auto;border-radius:12px;display:block;"/>
+                <img id="tokenImage" alt="NFT image"
+                     style="width:100%;height:auto;border-radius:12px;display:block;"/>
                 <div id="tokenCaption" style="margin-top:8px;color:#374151;font-size:14px;"></div>
               </div>
             </div>
           </div>
 
+          <!-- Result: product + map -->
+          <div id="verificationResult" class="verify-result hidden" style="margin-top:14px;">
+            <div class="verify-header">
+              <i class="fas fa-check-circle"></i>
+              <span class="verify-title">Product Verified</span>
+            </div>
+            <div id="verificationDetails" class="verify-details"></div>
+            <div id="productVerifyMap" class="map-container map-mini hidden"></div>
+          </div>
         </div>
       </div>
     </div>
-  </div> <!-- /.container -->
 
-  <!-- Map Selection Modal (used for farm & consumer picks) -->
+    <!-- ==================== Dashboard Tab ==================== -->
+    <div id="dashboard-tab" class="tab-content hidden">
+      <div class="card">
+        <h2 class="card-title"><i class="fas fa-chart-line" style="color:#10b981;margin-right:10px;"></i> My Dashboard</h2>
+
+        <!-- Stats -->
+        <div class="stats-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:10px;">
+          <div class="stat-card">
+            <div class="stat-title">Total Products</div>
+            <div class="stat-value" id="statTotalProducts">—</div>
+            <div class="stat-sub">+12.5% from last month</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-title">NFT Seals</div>
+            <div class="stat-value" id="statNftSeals">—</div>
+            <div class="stat-sub">+8.2% from last month</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-title">Verified Farms</div>
+            <div class="stat-value" id="statVerifiedFarms">—</div>
+            <div class="stat-sub">On-chain</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-title">Active Farms</div>
+            <div class="stat-value" id="statActiveFarms">—</div>
+            <div class="stat-sub" style="color:#10b981;">Active</div>
+          </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="chart-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;">
+          <div class="chart-card">
+            <div class="chart-title">Carbon Credits Overview</div>
+            <div style="height:360px;"><canvas id="creditsChart"></canvas></div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-title">Environmental Impact</div>
+            <div style="height:360px;"><canvas id="impactChart"></canvas></div>
+            <div id="impactMetrics" style="margin-top:12px;display:grid;grid-template-columns:1fr;gap:6px;color:#374151;"></div>
+          </div>
+          
+        </div>
+        <div class="card" id="recentProductsCard" style="margin-top:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+            <div class="chart-title">Recent Products</div>
+            <div id="recentProductsTotal" style="background:#ecfdf5;color:#065f46;padding:6px 10px;border-radius:999px;font-weight:600;font-size:13px;">0 Total</div>
+          </div>
+        
+          <div class="table-wrap" style="overflow:auto;">
+            <table style="width:100%;border-collapse:separate;border-spacing:0 10px;">
+              <thead style="text-align:left;color:#6b7280;font-size:14px;">
+                <tr>
+                  <th style="padding:8px 12px;">Product</th>
+                  <th style="padding:8px 12px;">Farm</th>
+                  <th style="padding:8px 12px;">Location</th>
+                  <th style="padding:8px 12px;">Carbon Score</th>
+                  <th style="padding:8px 12px;">Tokens</th>
+                  <th style="padding:8px 12px;">Status</th>
+                  <th style="padding:8px 12px;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="recentProductsBody"></tbody>
+            </table>
+          </div>
+        </div>
+        
+      </div>
+    </div>
+  </div>
+
+  <!-- Map Selection Modal -->
   <div id="mapModal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
