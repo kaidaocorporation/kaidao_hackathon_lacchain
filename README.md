@@ -188,6 +188,17 @@ function farmCounter() external view returns (uint256);
 
 Deployment network: **Sepolia** (chainId `0xaa36a7`).
 
+### Local Development (Hardhat)
+
+This repo now includes Hardhat helpers for contract work:
+
+1. `npm install`
+2. `npm run compile`
+3. `npm test`
+4. `npm run node` in one terminal, then `npm run deploy:localhost`
+
+Copy `.env.example` to `.env` and set your RPC URL, deployer key, and (optionally) Etherscan API key before deploying to Sepolia.
+
 ---
 
 ## Frontend
@@ -366,7 +377,9 @@ Metadata tips:
 
 ## Contributing
 
-Pull requests are welcome. Please:
+Pull requests are welcome. Refer to the [Repository Guidelines](AGENTS.md) for contributor expectations and workflow details.
+
+Please:
 
 1. Open an issue describing the change.
 2. Keep PRs focused and add tests where applicable.
