@@ -258,6 +258,10 @@ Frontend requirements:
 * Browser with MetaMask (or an injected EIP‑1193 provider)
 * Sepolia ETH for test transactions
 
+### Deploying to GitHub Pages
+
+The Vite config uses a relative `base` so the bundle can be served from `/USERNAME/REPO/`. Build the site with `npm run build` and publish the contents of `dist/` to your `gh-pages` branch (or enable GitHub Actions to do so). All legacy scripts are referenced via the app's base URL, so maps and the Customer Portal work once the asset directory is copied as-is.
+
 ---
 
 ## Usage Guide

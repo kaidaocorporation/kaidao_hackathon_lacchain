@@ -1,5 +1,10 @@
 import { useEffect } from 'react';
 
+const PUBLIC_BASE = import.meta.env.BASE_URL ?? '/';
+const resolvePublicPath = (path) => (
+  PUBLIC_BASE.endsWith('/') ? `${PUBLIC_BASE}${path}` : `${PUBLIC_BASE}/${path}`
+);
+
 const scriptQueue = [
   {
     src: 'https://cdnjs.cloudflare.com/ajax/libs/web3/1.8.0/web3.min.js',
@@ -15,10 +20,10 @@ const scriptQueue = [
     src: 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js',
   },
   {
-    src: '/legacy/contracts.js',
+    src: resolvePublicPath('legacy/contracts.js'),
   },
   {
-    src: '/legacy/app.js',
+    src: resolvePublicPath('legacy/app.js'),
   },
 ];
 
