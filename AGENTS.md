@@ -5,6 +5,7 @@ EcoTraceDAO now ships through Vite + React. `index.html` (Vite entry) bootstraps
 
 ## Build, Test, and Development Commands
 Run `npm install` once, then `npm run dev` to start the Vite server (defaults to `http://localhost:5173`) and `npm run build` for production assets. Use `npm run preview` to sanity-check the build output. Hardhat tooling lives in the same workspace: `npm run compile`, `npm test`, `npm run node`, and `npm run deploy:localhost` remain the canonical commands. Regenerate ABIs as needed and keep `public/legacy/contracts.js` aligned with deployments.
+The Vite config sets `base: './'`, so the contents of `dist/` can be hosted directly on GitHub Pages or any sub-path static host—just publish the folder as-is.
 
 ## Coding Style & Naming Conventions
 Use 2-space indentation for HTML/JS/CSS and 4-space indentation in Solidity. Prefer descriptive camelCase for JavaScript variables/functions and PascalCase for Solidity contracts/structs. Keep CSS class names lower-kebab-case. Run your editor's Prettier defaults for web assets and the Solidity extension formatter for contracts. Store environment constants (e.g. `SEPOLIA_CHAIN_ID`) in UPPER_SNAKE_CASE.
