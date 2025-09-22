@@ -1339,7 +1339,7 @@
   }
 
   // ================= Boot =================
-  document.addEventListener('DOMContentLoaded', () => {
+  function boot() {
     // 1) Cablear UI SIEMPRE (aunque Leaflet falle)
     wireTabs();
     wireForms();
@@ -1359,6 +1359,11 @@
         document.querySelectorAll('.map-container, #pickLocationBtn, #pickConsumerBtn').forEach(el => { if (el) el.style.display = 'none'; });
       }
     }, 5000);
-  });
-})();
+  }
 
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot);
+  } else {
+    boot();
+  }
+})();

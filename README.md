@@ -203,24 +203,25 @@ Copy `.env.example` to `.env` and set your RPC URL, deployer key, and (optionall
 
 ## Frontend
 
-Main logic lives in `js/app.js`:
+The UI is rendered through Vite + React (`src/App.jsx`) which mounts the legacy markup and hydrates it with the existing Web3/Leaflet logic from `public/legacy/app.js`. This keeps the original styles (`src/styles.css`), tab structure, and map interactions intact while enabling modern bundling.
+
+Legacy script responsibilities remain the same:
 
 * Handles MetaMask connection and chain switching to Sepolia.
-* Renders three tabs: **Product Trace**, **Farmer Portal**, **Verify Product**.
-* Provides map pickers (via modal) and a product‑to‑consumer route map for carbon seals.
-* Verifies products and renders farm location on a mini‑map.
-* Views Seal NFTs by token ID and normalizes key facts from metadata; no raw URLs are shown to users.
+* Renders the four portals (Trace, Farmer, Customer, Verify) plus the dashboard widgets.
+* Provides map pickers, route visualisation, and modal workflows.
+* Resolves NFT metadata and normalises seal information for display.
 
-Map provider: OpenStreetMap via Leaflet. If the primary CDN fails, `app.js` falls back to a secondary CDN.
+Leaflet maps load from the CDN; the script still falls back to an alternate host if the primary CDN fails.
 
 ---
 
 ## Configuration
 
-Create `js/contracts.js` (loaded before `app.js`) and export your deployed address and ABI:
+Update `public/legacy/contracts.js` (loaded before `public/legacy/app.js`) with your deployed address and ABI:
 
 ```js
-// js/contracts.js
+// public/legacy/contracts.js
 window.EcoTraceDAO = {
   chainId: '0xaa36a7', // Sepolia
   address: '0xYourDeployedContract',
@@ -228,30 +229,31 @@ window.EcoTraceDAO = {
 };
 ```
 
-You may also expose `window.CONTRACT_ADDRESS` and `window.CONTRACT_ABI` for backwards compatibility. `app.js` will use either.
+You may also expose `window.CONTRACT_ADDRESS` and `window.CONTRACT_ABI` for backwards compatibility. `public/legacy/app.js` will use either.
 
 ---
 
 ## Running Locally
 
-This is a static site; no build step is required.
+The frontend now runs on Vite + React while preserving the legacy UX.
 
 ```bash
 # 1) Clone
 git clone https://github.com/<org>/<repo>.git
 cd <repo>
 
-# 2) Serve statically (any server works)
-# Option A: simple Python server
-python3 -m http.server 8000
-# Option B: Node http-server
-npx http-server -p 8000
+# 2) Install dependencies (frontend + Hardhat)
+npm install
 
-# 3) Open the app
-open http://localhost:8000
+# 3) Start the Vite dev server
+npm run dev
+# Vite prints a local URL (default http://localhost:5173)
+
+# 4) Build production assets when deploying
+npm run build
 ```
 
-Requirements:
+Frontend requirements:
 
 * Browser with MetaMask (or an injected EIP‑1193 provider)
 * Sepolia ETH for test transactions
@@ -278,17 +280,18 @@ Click **Connect Wallet**. The app will propose chain switch/add to Sepolia.
 
 ### 4) Issue Seals
 
-* **Carbon Footprint Seal**:
+* **Deforestation‑Free Seal (Farmer Portal)**:
+
+  * Enter `Product ID` and `Verification Data` (certificate or reference).
+  * Provide a `tokenURI` in your contract integration (frontend uses a placeholder unless customized).
+  * Submit to mint the verification NFT for your harvest.
+
+* **Carbon Footprint Seal (Customer Portal)**:
 
   * Enter `Product ID`.
   * Provide consumer destination lat/lon (type, **Pick on Map**, or **Use My Location**).
   * Review the route map, distance, and coarse CO₂ estimate.
-  * Submit to mint the seal NFT with your `tokenURI` (IPFS recommended).
-
-* **Deforestation‑Free Seal**:
-
-  * Enter `Product ID` and `Verification Data` (certificate or reference).
-  * Provide a `tokenURI` in your contract integration (frontend uses a placeholder unless customized).
+  * Submit to mint the seal NFT with your `tokenURI` (IPFS recommended) so the customer can compensate emissions.
 
 ### 5) Verify
 

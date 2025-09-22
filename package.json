@@ -4,6 +4,9 @@
   "description": "Agricultural traceability and environmental seals on EVM.",
   "main": "index.js",
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
     "compile": "hardhat compile",
     "test": "hardhat test",
     "node": "hardhat node",
@@ -14,10 +17,14 @@
   "license": "ISC",
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@vitejs/plugin-react": "^4.3.4",
     "dotenv": "^17.2.2",
-    "hardhat": "^2.26.3"
+    "hardhat": "^2.26.3",
+    "vite": "^5.4.0"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^5.4.0"
+    "@openzeppelin/contracts": "^5.4.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   }
 }
